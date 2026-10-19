@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1B2240"/>
+  <!-- three stave lines, and a phrase that bends from one onto the next -->
+  <g stroke="#3A4472" stroke-width="10" stroke-linecap="round">
+    <line x1="96" y1="186" x2="416" y2="186"/>
+    <line x1="96" y1="256" x2="416" y2="256"/>
+    <line x1="96" y1="326" x2="416" y2="326"/>
+  </g>
+  <path d="M120 186 C 220 186, 260 326, 392 326" fill="none" stroke="#C2912E" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="120" cy="186" r="30" fill="#F2F4F8"/>
+  <circle cx="392" cy="326" r="30" fill="#C2912E"/>
+</svg>

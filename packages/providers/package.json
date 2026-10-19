@@ -1,0 +1,24 @@
+{
+  "name": "@segue/providers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adapters for places, weather and caching. Each sits behind an interface so vendors can be swapped or mocked.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@segue/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

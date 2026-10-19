@@ -1,0 +1,27 @@
+{
+  "name": "@segue/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Segue API: re-routes a day from current context. Zero-framework Node HTTP server.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/server.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@segue/engine": "workspace:*",
+    "@segue/providers": "workspace:*",
+    "@segue/schemas": "workspace:*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
