@@ -41,3 +41,10 @@ export function useRoute(): Route {
   }, []);
   return route;
 }
+
+/** From the landing page into the app, keeping what's in memory (like a Google sign-in). */
+export function enterApp(query = window.location.search) {
+  history.pushState(null, '', `/app${query}`);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+  window.scrollTo({ top: 0 });
+}

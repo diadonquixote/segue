@@ -5,6 +5,7 @@ import { BlockForm, RoutinesView } from './components/Blocks';
 import { CalendarCard } from './components/CalendarCard';
 import { CalendarPage } from './components/CalendarPage';
 import { ItemSheet } from './components/ItemSheet';
+import { GoogleButton } from './components/GoogleButton';
 import { Onboarding } from './components/Onboarding';
 import { PlanPage } from './components/PlanPage';
 import { PrecautionsCard } from './components/Precautions';
@@ -15,7 +16,8 @@ import { SkyHeader, type LocationStatus, type View } from './components/SkyHeade
 import { Timeline } from './components/Timeline';
 import { calendarBlockId } from './lib/calendar';
 import { clock } from './lib/format';
-import { GOOGLE_CLIENT_ID } from './lib/googleCalendar';
+import { firstName, forgetAccount, loadAccount, signUpWithGoogle, type Account } from './lib/account';
+import { GOOGLE_CLIENT_ID, calendarErrorMessage } from './lib/googleCalendar';
 import { useNow, usePersisted } from './lib/hooks';
 import { currentLocation, locate, locationPermission } from './lib/location';
 import {
@@ -87,6 +89,8 @@ export function App() {
   const [reason, setReason] = useState<ReplanReason | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [seed, setSeed] = useState<{ text: string; n: number } | undefined>();
+  const [account, setAccount] = useState<Account | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
   const now = useNow();
   const today = localDate(now);
   const notify = useCallback((text: string) => setToast({ text }), []);
@@ -113,6 +117,7 @@ export function App() {
       setFavorites(f ?? []);
       setHistory(h ?? {});
       if (calendar) cal.setCalendar(calendar);
+      setAccount((await loadAccount()) ?? null);
       setReady(true);
       // Already allowed: quietly refresh where we are, so the sky is local. Never prompts.
       const permission = await locationPermission();
@@ -406,6 +411,28 @@ export function App() {
     setToast({ text: granted ? "Reminders are on. You'll get a nudge when it's time to leave." : "Notifications are blocked, so reminders stay in the app." });
   }
 
+  /** Settings: sign up with Google later. Runs from a tap, so Google's window opens straight away. */
+  async function signIn() {
+    setSigningIn(true);
+    try {
+      const result = await signUpWithGoogle();
+      setAccount(result.account);
+      cal.setCalendar(result.calendar);
+      setToast({ text: `Signed in${result.account ? ` as ${firstName(result.account)}` : ''}. Your Google Calendar is connected.` });
+    } catch (e) {
+      setToast({ text: calendarErrorMessage(e) });
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
+  async function signOut() {
+    cal.disconnect();
+    await forgetAccount();
+    setAccount(null);
+    setToast({ text: 'Signed out of Google. Your plans stay on this device.' });
+  }
+
   async function startOver() {
     await clearAll();
     window.location.reload();
@@ -472,6 +499,7 @@ export function App() {
         <div className="app">
           <Onboarding
             now={now}
+            name={firstName(account) || undefined}
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
             location={locationStatus}
@@ -675,6 +703,37 @@ export function App() {
             favorites={favorites}
             onRemoveFavorite={(id) => setFavorites((list) => list.filter((f) => f.id !== id))}
             onToggleReminders={(on) => void toggleReminders(on)}
+            account={
+              GOOGLE_CLIENT_ID ? (
+                <section className="settings-group">
+                  <h3 className="section-title">Account</h3>
+                  {account ? (
+                    <>
+                      <div className="account-row">
+                        {account.picture ? (
+                          <img className="avatar" src={account.picture} alt="" referrerPolicy="no-referrer" width="44" height="44" />
+                        ) : (
+                          <span className="avatar">{firstName(account).charAt(0)}</span>
+                        )}
+                        <span>
+                          <strong>{account.name}</strong>
+                          <span className="muted small block">{account.email}</span>
+                        </span>
+                      </div>
+                      <p className="muted small">Signed in with Google on this device. Your calendar is read in your browser; Segue's server never sees your sign-in.</p>
+                      <button type="button" className="ghost" onClick={() => void signOut()}>
+                        Sign out
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="muted small">Sign up with Google to bring in your calendar. Segue only reads it.</p>
+                      <GoogleButton busy={signingIn} onClick={() => void signIn()} />
+                    </>
+                  )}
+                </section>
+              ) : null
+            }
             calendar={
               <section className="settings-group">
                 <h3 className="section-title">Google Calendar</h3>

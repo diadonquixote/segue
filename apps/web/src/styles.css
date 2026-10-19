@@ -2163,3 +2163,34 @@ details.more[open] {
   font-weight: 500;
   opacity: 0.85;
 }
+
+/* ---------- account ---------- */
+
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--brass-soft);
+  font-weight: 700;
+  object-fit: cover;
+}
+.settings .google-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 18px 0 14px;
+  border: 1px solid #dadce0;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f1f1f;
+  font-weight: 600;
+  cursor: pointer;
+}

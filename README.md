@@ -52,7 +52,7 @@ Google calls are capped per day (`GOOGLE_DAILY_BUDGET`, default 500) and fall ba
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or pick a project and enable the **Google Calendar API**.
 2. Under **Google Auth Platform → Branding/Audience**, set up the consent screen. While the app is in *Testing*, add your own Google account as a test user.
-3. Under **Data Access**, add the scopes `https://www.googleapis.com/auth/calendar.events.readonly` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (the second lets Segue read every calendar you have switched on; without it, only your main one).
+3. Under **Data Access**, add the scopes `openid`, `email`, `profile` (for **Continue with Google** on the landing page), `https://www.googleapis.com/auth/calendar.events.readonly` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (the last lets Segue read every calendar you have switched on; without it, only your main one).
 4. Under **Clients**, create an OAuth client of type **Web application**. Add `http://localhost:5173` (and your production URL) to **Authorized JavaScript origins**. No redirect URI is needed.
 5. Put the client ID in `apps/web/.env`:
 
@@ -60,7 +60,7 @@ Google calls are capped per day (`GOOGLE_DAILY_BUDGET`, default 500) and fall ba
    cp apps/web/.env.example apps/web/.env   # then set VITE_GOOGLE_CLIENT_ID=…apps.googleusercontent.com
    ```
 
-6. Restart `pnpm dev:web`, open the **Plan** tab (or Settings), and tap **Connect** to reach the Google Calendar screen.
+6. Restart `pnpm dev:web`. On the landing page, **Continue with Google** signs you up and connects your calendar in one step; inside the app, the **Plan** tab (or Settings) has **Connect** for the Google Calendar screen.
 
 Segue only reads today's timed events, and never changes your calendar. Sign-in happens in the browser and the short-lived token stays in memory, so the API never sees it. To let other people connect, Google has to verify the app for this scope (publish the consent screen and submit it for review).
 

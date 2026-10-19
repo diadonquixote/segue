@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { firstName, loadAccount, signUpWithGoogle, type Account } from '../lib/account';
+import { GOOGLE_CLIENT_ID, calendarErrorMessage, preloadGoogle } from '../lib/googleCalendar';
 import { parseQuickAdd } from '../lib/quickAdd';
+import { enterApp } from '../lib/router';
 import { REASONS } from '../lib/replan';
 import type { SkyCondition } from '../lib/weather';
+import { GoogleButton } from './GoogleButton';
 import { EXAMPLES } from './QuickAdd';
 import { Sky } from './Sky';
 import '../landing.css';
@@ -63,7 +67,7 @@ const FEATURES = [
 ];
 
 const PRIVACY = [
-  'Your plans, routines and history are saved on your phone. There is no account to create.',
+  'Your plans, routines and history are saved on your phone. Signing up with Google keeps your name and calendar on this device too.',
   'Planning works with no signal, using the places from your last connection.',
   'Your location is sent only when Segue plans or checks the weather, and it is not stored.',
   "Google Calendar is read in your browser. Segue's server never sees your Google sign-in.",
@@ -157,7 +161,83 @@ function TryIt() {
   );
 }
 
+/** Into the app without a page load, so a Google sign-in made here carries over. */
+function openApp(e: MouseEvent) {
+  if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+  e.preventDefault();
+  enterApp('');
+}
+
+/** Sign up with Google (connects the calendar), or go in without an account. */
+function SignUp({ account, busy, error, onSignUp, place }: { account: Account | null; busy: boolean; error: string | null; onSignUp: () => void; place: 'hero' | 'final' }) {
+  if (account) {
+    return (
+      <div className="lp-ctas">
+        <a className="lp-primary" href="/app" onClick={openApp}>
+          Continue as {firstName(account)}
+        </a>
+      </div>
+    );
+  }
+  if (!GOOGLE_CLIENT_ID) {
+    return (
+      <>
+        <div className="lp-ctas">
+          <a className="lp-primary" href="/app" onClick={openApp}>
+            Plan my day
+          </a>
+          {place === 'hero' && (
+            <a className="lp-secondary" href="#how">
+              See how it works
+            </a>
+          )}
+        </div>
+        {place === 'hero' && <p className="lp-micro">Free. No account needed. Works offline.</p>}
+      </>
+    );
+  }
+  return (
+    <>
+      <div className="lp-ctas">
+        <GoogleButton className="lp-google" busy={busy} onClick={onSignUp} />
+        <a className={place === 'hero' ? 'lp-secondary' : 'lp-secondary dark'} href="/app" onClick={openApp}>
+          Try it without signing up
+        </a>
+      </div>
+      <p className="lp-micro">Free. Signing up with Google brings in your calendar, so Segue plans around your meetings. It only ever reads it.</p>
+      {error && (
+        <p className="lp-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function Landing() {
+  const [account, setAccount] = useState<Account | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void loadAccount().then((a) => setAccount(a ?? null));
+    // Load Google's sign-in early so its window opens straight from the tap.
+    if (GOOGLE_CLIENT_ID) preloadGoogle().catch(() => {});
+  }, []);
+
+  async function signUp() {
+    setBusy(true);
+    setError(null);
+    try {
+      await signUpWithGoogle();
+      enterApp('');
+    } catch (e) {
+      setError(calendarErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const [sky, setSky] = useState<SkyCondition>('clear');
 
   useEffect(() => {
@@ -178,7 +258,7 @@ export function Landing() {
             <a href="#features">Features</a>
             <a href="#privacy">Privacy</a>
           </div>
-          <a className="lp-open" href="/app">
+          <a className="lp-open" href="/app" onClick={openApp}>
             Open Segue
           </a>
         </nav>
@@ -190,15 +270,7 @@ export function Landing() {
               Tell Segue what you want to get done, the way you'd say it. It finds the time and the place around what's open, the weather, rush hour
               and your Google Calendar.
             </p>
-            <div className="lp-ctas">
-              <a className="lp-primary" href="/app">
-                Plan my day
-              </a>
-              <a className="lp-secondary" href="#how">
-                See how it works
-              </a>
-            </div>
-            <p className="lp-micro">Free. No account needed. Works offline.</p>
+            <SignUp account={account} busy={busy} error={error} onSignUp={() => void signUp()} place="hero" />
             <div className="lp-sky-switch" role="group" aria-label="Change the sky">
               <span>The sky follows your weather. Try it:</span>
               {SKIES.map((s) => (
@@ -295,10 +367,12 @@ export function Landing() {
         <section className="lp-final" aria-labelledby="final-title">
           <img src="/icon.svg" alt="" width="88" height="88" />
           <h2 id="final-title">Start with what's on today</h2>
-          <p>Add a few things, and Segue plans the rest of your day. Add it to your home screen and it opens like an app.</p>
-          <a className="lp-primary" href="/app">
-            Plan my day
-          </a>
+          <p>
+            {GOOGLE_CLIENT_ID && !account
+              ? 'Sign up with Google and your meetings are already in your plan. Add it to your home screen and it opens like an app.'
+              : 'Add a few things, and Segue plans the rest of your day. Add it to your home screen and it opens like an app.'}
+          </p>
+          <SignUp account={account} busy={busy} error={error} onSignUp={() => void signUp()} place="final" />
         </section>
       </main>
 
@@ -310,7 +384,9 @@ export function Landing() {
         <p>
           <em>Segue</em> (n.): in music, moving from one piece into the next without a pause.
         </p>
-        <a href="/app">Open Segue</a>
+        <a href="/app" onClick={openApp}>
+          Open Segue
+        </a>
       </footer>
     </div>
   );

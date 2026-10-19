@@ -15,6 +15,8 @@ interface Props {
   onRemoveFavorite: (id: string) => void;
   onToggleReminders: (on: boolean) => void;
   calendar: ReactNode;
+  /** who's signed in with Google, or a way to sign up */
+  account?: ReactNode;
   onStartOver: () => void;
   onClose: () => void;
 }
@@ -27,6 +29,7 @@ export function SettingsSheet(props: Props) {
   return (
     <Sheet title="Settings" onClose={props.onClose}>
       <div className="form settings">
+        {props.account}
         <section className="settings-group">
           <h3 className="section-title">Your day</h3>
           <label className="field">

@@ -10,6 +10,8 @@ const EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
 // Optional: lets Segue read every calendar you have switched on, not just your main one.
 const LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
 const SCOPE = `${EVENTS_SCOPE} ${LIST_SCOPE}`;
+/** Signing up also asks for your name, email and photo, to greet you and show who's signed in. */
+const PROFILE_SCOPE = 'openid email profile';
 const API = 'https://www.googleapis.com/calendar/v3';
 /** Enough for work, personal and a few shared calendars without slowing sync down. */
 const MAX_CALENDARS = 10;
@@ -77,23 +79,52 @@ export function preloadGoogle(): Promise<void> {
 export const tokenValid = (t: GoogleToken | null): t is GoogleToken => !!t && t.expiresAt - Date.now() > 60_000;
 
 /**
+ * The one Google token for this page: memory only, never saved, never sent to
+ * the Segue API. Shared so signing up on the landing page carries into the app
+ * (they switch without a page load).
+ */
+let current: GoogleToken | null = null;
+export const currentToken = () => current;
+export function forgetToken() {
+  current = null;
+}
+
+/** Who signed in, from Google. */
+export interface GoogleProfile {
+  sub: string;
+  name: string;
+  email: string;
+  picture?: string;
+}
+
+export async function fetchProfile(token: GoogleToken): Promise<GoogleProfile> {
+  const p = await getJson<{ sub: string; name?: string; given_name?: string; email?: string; picture?: string }>(
+    token,
+    'https://www.googleapis.com/oauth2/v3/userinfo',
+  );
+  return { sub: p.sub, name: p.name ?? p.given_name ?? 'there', email: p.email ?? '', picture: p.picture };
+}
+
+/**
  * Ask Google for a read-only token. Call it straight from a tap: when the
  * script is already loaded the popup opens in the same tick, which keeps
  * popup blockers happy. `consent` shows the full prompt; '' reuses an
  * earlier grant and usually closes on its own.
  */
-export function requestToken(prompt: '' | 'consent'): Promise<GoogleToken> {
+export function requestToken(prompt: '' | 'consent', { profile = false } = {}): Promise<GoogleToken> {
   return new Promise((resolve, reject) => {
     const open = () => {
       const oauth = window.google!.accounts.oauth2;
       oauth
         .initTokenClient({
           client_id: GOOGLE_CLIENT_ID!,
-          scope: SCOPE,
+          scope: profile ? `${PROFILE_SCOPE} ${SCOPE}` : SCOPE,
           callback: (r) => {
             if (r.error || !r.access_token) return reject(new CalendarError('denied'));
             if (!oauth.hasGrantedAllScopes(r, EVENTS_SCOPE)) return reject(new CalendarError('denied'));
-            resolve({ value: r.access_token, expiresAt: Date.now() + (r.expires_in ?? 3600) * 1000 });
+            const token = { value: r.access_token, expiresAt: Date.now() + (r.expires_in ?? 3600) * 1000 };
+            current = token;
+            resolve(token);
           },
           error_callback: (e) => reject(new CalendarError(e.type === 'popup_closed' ? 'cancelled' : 'unavailable')),
         })
@@ -156,6 +187,7 @@ export async function fetchTodayEvents(token: GoogleToken, day: Date): Promise<C
 
 export function revokeToken(token: GoogleToken | null): void {
   if (token && window.google?.accounts?.oauth2) window.google.accounts.oauth2.revoke(token.value);
+  current = null;
 }
 
 /** Plain words for each failure: what happened and what to do. */

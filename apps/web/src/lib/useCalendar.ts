@@ -1,15 +1,7 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { EMPTY_CALENDAR, calendarBlocks, type CalendarState } from './calendar';
 import { clock } from './format';
-import {
-  CalendarError,
-  calendarErrorMessage,
-  fetchTodayEvents,
-  requestToken,
-  revokeToken,
-  tokenValid,
-  type GoogleToken,
-} from './googleCalendar';
+import { CalendarError, calendarErrorMessage, currentToken, fetchTodayEvents, forgetToken, requestToken, revokeToken, tokenValid } from './googleCalendar';
 import { usePersisted } from './hooks';
 import { localDate } from './model';
 
@@ -21,8 +13,6 @@ export function useCalendar(ready: boolean, notify: (message: string) => void) {
   const [calendar, setCalendar] = usePersisted<CalendarState>('calendar', EMPTY_CALENDAR, ready);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Google's access token: memory only, never saved, never sent to the Segue API.
-  const token = useRef<GoogleToken | null>(null);
 
   /**
    * Fetch today's events. Runs from a tap: if a new Google token is needed,
@@ -32,15 +22,16 @@ export function useCalendar(ready: boolean, notify: (message: string) => void) {
     setBusy(true);
     setError(null);
     try {
-      if (prompt === 'consent' || !tokenValid(token.current)) token.current = await requestToken(prompt);
-      const events = await fetchTodayEvents(token.current, new Date());
+      let token = currentToken();
+      if (prompt === 'consent' || !tokenValid(token)) token = await requestToken(prompt);
+      const events = await fetchTodayEvents(token, new Date());
       const wasConnected = calendar.connected;
       setCalendar({ connected: true, date: localDate(), events, syncedAt: new Date().toISOString() });
       const count = events.length === 1 ? '1 event' : `${events.length} events`;
       notify(!wasConnected ? `Google Calendar connected: ${count} today.` : `Calendar synced: ${count} today.`);
       return true;
     } catch (e) {
-      if (e instanceof CalendarError && e.kind === 'expired') token.current = null;
+      if (e instanceof CalendarError && e.kind === 'expired') forgetToken();
       setError(calendarErrorMessage(e));
       return false;
     } finally {
@@ -49,8 +40,7 @@ export function useCalendar(ready: boolean, notify: (message: string) => void) {
   }
 
   function disconnect() {
-    revokeToken(token.current);
-    token.current = null;
+    revokeToken(currentToken());
     setCalendar(EMPTY_CALENDAR);
     setError(null);
     notify('Google Calendar disconnected. Re-route to take its events out of your plan.');
@@ -60,9 +50,10 @@ export function useCalendar(ready: boolean, notify: (message: string) => void) {
   async function forReroute(start: Date, room: number) {
     let cal = calendar;
     if (!cal.connected) return { extra: [], warnings: [] as string[] };
-    if (tokenValid(token.current)) {
+    const token = currentToken();
+    if (tokenValid(token)) {
       try {
-        const events = await fetchTodayEvents(token.current, start);
+        const events = await fetchTodayEvents(token, start);
         cal = { connected: true, date: localDate(start), events, syncedAt: start.toISOString() };
         setCalendar(cal);
       } catch {

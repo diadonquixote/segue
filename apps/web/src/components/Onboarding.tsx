@@ -6,6 +6,8 @@ import { QuickAdd } from './QuickAdd';
 
 interface Props {
   now: Date;
+  /** first name, after signing up with Google */
+  name?: string;
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
   location: LocationStatus;
@@ -42,7 +44,10 @@ export function Onboarding(props: Props) {
 
       {step === 0 && (
         <section className="ob-step">
-          <h2 className="ob-title">Plan your day around real life</h2>
+          <h2 className="ob-title">{props.name ? `Welcome, ${props.name}` : 'Plan your day around real life'}</h2>
+          {props.calendarConnected && (
+            <p className="ok-line">Your Google Calendar is connected. Two quick questions and you're set.</p>
+          )}
           <ul className="ob-points">
             <li>Tell Segue what you want to get done, in plain words.</li>
             <li>It finds the time and the place, around what's open and the weather.</li>

@@ -13,6 +13,9 @@ async function fakeGoogle(page: Page) {
         hasGrantedAllScopes: () => true, revoke: () => {} } } };`,
     }),
   );
+  await page.route('https://www.googleapis.com/oauth2/v3/userinfo', (r) =>
+    r.fulfill({ headers: cors, body: JSON.stringify({ sub: '42', name: 'Ana Reyes', email: 'ana@example.com' }) }),
+  );
   await page.route('https://www.googleapis.com/calendar/v3/users/me/calendarList**', (r) =>
     r.fulfill({ headers: cors, body: JSON.stringify({ items: [{ id: 'me@x', primary: true, selected: true }, { id: 'team@x', selected: true }] }) }),
   );
@@ -49,7 +52,7 @@ test('the landing page explains Segue and opens the app', async ({ page }) => {
   await expect(page.locator('.lp-try-result')).toContainText('Before 8 PM');
   await page.getByRole('button', { name: 'Storm' }).click();
   await expect(page.locator('.lp-phone')).toContainText("It's raining");
-  await page.getByRole('link', { name: 'Plan my day' }).first().click();
+  await page.getByRole('link', { name: 'Try it without signing up' }).first().click();
   await expect(page).toHaveURL(/\/app(\?|$)/);
   await expect(page.getByRole('heading', { name: 'Plan your day around real life' })).toBeVisible();
 });
@@ -153,4 +156,28 @@ test('weather precautions: heavy rain while driving, then a hot sunny day', asyn
   await expect(page.locator('.weather-line')).toContainText('feels');
   await page.getByRole('button', { name: 'Plan', exact: true }).click();
   await expect(page.locator('.precaution-strip')).toContainText('Wear sunscreen');
+});
+
+test('sign up with Google on the landing page: greeted by name, calendar already in', async ({ page }) => {
+  await fakeGoogle(page);
+  await page.clock.setFixedTime(MORNING);
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: 'Try it without signing up' }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Continue with Google' }).first().click();
+
+  await expect(page).toHaveURL(/\/app(\?|$)/);
+  await expect(page.getByRole('heading', { name: 'Welcome, Ana' })).toBeVisible();
+  await expect(page.getByText('Your Google Calendar is connected')).toBeVisible();
+  await page.getByRole('button', { name: /^Next/ }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.locator('.calendar-card')).toContainText('Connected');
+  await page.getByRole('button', { name: 'Plan my day' }).click(); // enabled: the calendar counts
+  await expect(page.locator('main')).toContainText('Team standup');
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toContainText('ana@example.com');
+  await page.getByRole('button', { name: 'Close' }).click();
+
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: 'Continue as Ana' }).first()).toBeVisible();
 });
