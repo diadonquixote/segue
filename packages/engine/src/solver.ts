@@ -6,7 +6,7 @@
  * hours and time windows allow. Every candidate change is checked by
  * simulating the whole sequence, so a plan is always feasible.
  */
-import { estimateTravelMinutes } from './geo';
+import { estimateTravelMinutes, trafficAware } from './geo';
 import { earliestOpenStart } from './hours';
 import {
   energyPenalty,
@@ -74,7 +74,7 @@ export function makeEnv(
     nowMs: toMs(context.now),
     endMs: toMs(context.endOfDay),
     weights,
-    travel: travel ?? estimateTravelMinutes,
+    travel: travel ?? trafficAware(estimateTravelMinutes, context.utcOffsetMinutes),
     affinity,
   };
 }
@@ -92,7 +92,7 @@ export function simulate(seq: Slot[], env: SolverEnv): SimItem[] | null {
 
   for (const slot of seq) {
     const dest = slotLocation(slot);
-    const travelMin = dest ? env.travel(pos, dest, context.mode) : 0;
+    const travelMin = dest ? env.travel(pos, dest, context.mode, t) : 0;
     const arrive = t + travelMin * MINUTE;
 
     if (slot.pinned) {
@@ -171,7 +171,7 @@ export function optionsFor(block: Block, candidates: Place[] | undefined, env: S
     const ranked = (candidates ?? [])
       .filter((p) => !failsHardRequirement(block, p))
       .map((p) => {
-        const travelMin = env.travel(env.context.location, p.location, env.context.mode);
+        const travelMin = env.travel(env.context.location, p.location, env.context.mode, env.nowMs);
         return { p, travelMin, s: staticCandidateScore(block, p, travelMin, env.affinity, env.weights) };
       })
       .filter((x) => x.travelMin + block.minMinutes <= remainingMin)

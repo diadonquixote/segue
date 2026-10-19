@@ -1,7 +1,7 @@
 {
   "name": "segue",
   "private": true,
-  "description": "Segue — a day planner that re-routes itself when life goes off-script.",
+  "description": "Segue \u2014 a day planner that re-routes itself when life goes off-script.",
   "packageManager": "pnpm@10.28.0",
   "engines": {
     "node": ">=20"
@@ -13,7 +13,8 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "check": "pnpm typecheck && pnpm test"
+    "check": "pnpm typecheck && pnpm test",
+    "e2e": "pnpm --filter @segue/web e2e"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

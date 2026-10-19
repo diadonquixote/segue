@@ -30,6 +30,8 @@ export const EMPTY_CALENDAR: CalendarState = { connected: false, events: [] };
 /** The parts of a Google Calendar API event that matter here. */
 export interface GoogleEvent {
   id: string;
+  /** shared across calendars for the same meeting */
+  iCalUID?: string;
   status?: string;
   summary?: string;
   location?: string;
@@ -65,6 +67,7 @@ export function parseEvents(items: GoogleEvent[], dayStart: string, dayEnd: stri
   const from = Date.parse(dayStart);
   const to = Date.parse(dayEnd);
   const out: CalendarEvent[] = [];
+  const seen = new Set<string>();
   for (const e of items) {
     if (e.status === 'cancelled' || e.transparency === 'transparent') continue;
     if (!e.start?.dateTime || !e.end?.dateTime) continue;
@@ -73,6 +76,10 @@ export function parseEvents(items: GoogleEvent[], dayStart: string, dayEnd: stri
     const start = Math.max(Date.parse(e.start.dateTime), from);
     const end = Math.min(Date.parse(e.end.dateTime), to);
     if (!(end - start >= MIN_MINUTES * 60_000)) continue;
+    // The same meeting can show up on more than one calendar.
+    const key = `${e.iCalUID ?? e.id}|${start}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push({
       id: e.id,
       title: (e.summary?.trim() || 'Busy').slice(0, MAX_TITLE),

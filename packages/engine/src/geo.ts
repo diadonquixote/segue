@@ -38,6 +38,25 @@ export const estimateTravelMinutes: TravelFn = (from, to, mode) => {
   return Math.ceil((meters / 1000 / kmh) * 60 + overheadMin);
 };
 
+/** Rush hour, weekdays 7–10 AM and 5–8 PM local: rides take about half as long again. */
+export function rushHourFactor(departMs: number, utcOffsetMinutes: number): number {
+  const local = new Date(departMs + utcOffsetMinutes * 60_000);
+  const day = local.getUTCDay();
+  if (day === 0 || day === 6) return 1;
+  const h = local.getUTCHours() + local.getUTCMinutes() / 60;
+  return (h >= 7 && h < 10) || (h >= 17 && h < 20) ? 1.5 : 1;
+}
+
+/** Wraps a travel estimate so rides slow down in rush hour. Walking is never affected. */
+export function trafficAware(base: TravelFn, utcOffsetMinutes: number): TravelFn {
+  return (from, to, mode, departMs) => {
+    const minutes = base(from, to, mode);
+    if (departMs === undefined || mode === 'walk' || minutes === 0) return minutes;
+    if (base(from, to, 'walk') === minutes) return minutes; // short hops are walked anyway
+    return Math.ceil(minutes * rushHourFactor(departMs, utcOffsetMinutes));
+  };
+}
+
 /** Search radius that makes sense for a travel mode. */
 export function searchRadiusMeters(mode: TravelMode): number {
   switch (mode) {

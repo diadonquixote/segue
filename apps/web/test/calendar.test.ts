@@ -32,6 +32,12 @@ describe('Google Calendar events', () => {
     expect(events[0]!.location).toBe('Room 3');
   });
 
+  it('lists a meeting once even when it is on two calendars', () => {
+    const work = timed('a1', '2026-10-19T09:00:00+08:00', '2026-10-19T09:30:00+08:00', { iCalUID: 'mtg@x' });
+    const shared = { ...work, id: 'b7' };
+    expect(parseEvents([work, shared], dayStart, dayEnd)).toHaveLength(1);
+  });
+
   it('counts only the part of a late event that falls inside today', () => {
     const [e] = parseEvents([timed('flight', '2026-10-19T22:00:00+08:00', '2026-10-20T03:00:00+08:00')], dayStart, dayEnd);
     expect(Date.parse(e!.end)).toBe(Date.parse(dayEnd));

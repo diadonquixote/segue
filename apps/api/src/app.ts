@@ -5,16 +5,20 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { reroute } from '@segue/engine';
+import type { Place } from '@segue/engine';
 import type { PlacesProvider, WeatherProvider } from '@segue/providers';
-import { NearbyQuerySchema, RerouteRequestSchema, formatIssues } from '@segue/schemas';
+import { NearbyQuerySchema, RerouteRequestSchema, UnderstandRequestSchema, formatIssues } from '@segue/schemas';
 import { gatherCandidates } from './candidates';
 import type { Config } from './config';
 import { RateLimiter } from './rateLimit';
+import type { Understand } from './understand';
 
 export interface AppDeps {
-  config: Pick<Config, 'corsOrigins' | 'rerouteRateLimit'>;
+  config: Pick<Config, 'corsOrigins' | 'rerouteRateLimit'> & Partial<Pick<Config, 'smartAddRateLimit'>>;
   places: PlacesProvider;
   weather: WeatherProvider;
+  /** Present when "Ask in your own words" is on. */
+  understand?: Understand;
   log?: (line: string) => void;
 }
 
@@ -63,6 +67,20 @@ function latLngQuery(url: URL): { lat: number; lng: number } {
   return { lat: lat!, lng: lng! };
 }
 
+/** Add the user's saved places to each block that needs that kind of place. */
+function withFavorites(candidates: Record<string, Place[]>, blocks: { id: string; category: string; fixed?: unknown }[], favorites: Place[] = []) {
+  if (!favorites.length) return candidates;
+  const out: Record<string, Place[]> = { ...candidates };
+  for (const b of blocks) {
+    if (b.fixed || b.category === 'none') continue;
+    const mine = favorites.filter((f) => f.category === b.category);
+    if (!mine.length) continue;
+    const have = new Set((out[b.id] ?? []).map((p) => p.id));
+    out[b.id] = [...mine.filter((f) => !have.has(f.id)), ...(out[b.id] ?? [])];
+  }
+  return out;
+}
+
 function clientKey(req: IncomingMessage): string {
   const fwd = req.headers['x-forwarded-for'];
   const first = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(',')[0]?.trim();
@@ -71,6 +89,7 @@ function clientKey(req: IncomingMessage): string {
 
 export function createApp(deps: AppDeps) {
   const limiter = new RateLimiter(deps.config.rerouteRateLimit, 60 * 60 * 1000);
+  const understandLimiter = new RateLimiter(deps.config.smartAddRateLimit ?? 40, 60 * 60 * 1000);
   const log = deps.log ?? ((l: string) => console.log(l));
   const allowAll = deps.config.corsOrigins.includes('*');
 
@@ -91,7 +110,7 @@ export function createApp(deps: AppDeps) {
     const method = req.method ?? 'GET';
 
     if (method === 'GET' && url.pathname === '/health') {
-      return { status: 200, body: { ok: true, places: deps.places.name, weather: deps.weather.name } };
+      return { status: 200, body: { ok: true, places: deps.places.name, weather: deps.weather.name, smartAdd: !!deps.understand } };
     }
 
     if (method === 'GET' && url.pathname === '/v1/places/nearby') {
@@ -117,6 +136,21 @@ export function createApp(deps: AppDeps) {
       return { status: 200, body: { hours: await deps.weather.forecast({ lat, lng }) } };
     }
 
+    if (method === 'POST' && url.pathname === '/v1/understand') {
+      if (!deps.understand) throw new HttpError(404, 'Smart add is off on this server');
+      const parsed = UnderstandRequestSchema.safeParse(await readJson(req));
+      if (!parsed.success) throw new HttpError(400, 'Invalid request', formatIssues(parsed.error));
+      // Counted after validation: only requests that would reach Claude use up the allowance.
+      const retryAfter = understandLimiter.hit(clientKey(req));
+      if (retryAfter) throw new HttpError(429, 'Too many requests, try again later', undefined, { 'retry-after': String(retryAfter) });
+      try {
+        return { status: 200, body: { blocks: await deps.understand(parsed.data.text, parsed.data.localTime) } };
+      } catch (e) {
+        log(`understand failed: ${(e as Error).message}`);
+        throw new HttpError(502, "Couldn't read that right now");
+      }
+    }
+
     if (method === 'POST' && url.pathname === '/v1/reroute') {
       const retryAfter = limiter.hit(clientKey(req));
       if (retryAfter) throw new HttpError(429, 'Too many re-routes, try again later', undefined, { 'retry-after': String(retryAfter) });
@@ -140,10 +174,11 @@ export function createApp(deps: AppDeps) {
             }),
       ]);
       warnings.push(...candidateResult.warnings);
+      const candidates = withFavorites(candidateResult.candidates, body.blocks, body.favorites);
 
       const result = reroute({
         blocks: body.blocks,
-        candidates: candidateResult.candidates,
+        candidates,
         context: { ...body.context, weather },
         previous: body.previous,
         lockedBlockIds: body.lockedBlockIds,
@@ -156,7 +191,7 @@ export function createApp(deps: AppDeps) {
         body: {
           ...result,
           // Sent back so the phone can cache them and re-route offline.
-          candidates: candidateResult.candidates,
+          candidates,
           meta: {
             placesProvider: body.candidates ? 'client' : deps.places.name,
             weather: weather.length > 0,

@@ -6,7 +6,13 @@
 import { dayBounds, parseEvents, type CalendarEvent, type GoogleEvent } from './calendar';
 
 export const GOOGLE_CLIENT_ID: string | undefined = import.meta.env?.VITE_GOOGLE_CLIENT_ID || undefined;
-const SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+const EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+// Optional: lets Segue read every calendar you have switched on, not just your main one.
+const LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+const SCOPE = `${EVENTS_SCOPE} ${LIST_SCOPE}`;
+const API = 'https://www.googleapis.com/calendar/v3';
+/** Enough for work, personal and a few shared calendars without slowing sync down. */
+const MAX_CALENDARS = 10;
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 
 interface TokenResponse {
@@ -86,7 +92,7 @@ export function requestToken(prompt: '' | 'consent'): Promise<GoogleToken> {
           scope: SCOPE,
           callback: (r) => {
             if (r.error || !r.access_token) return reject(new CalendarError('denied'));
-            if (!oauth.hasGrantedAllScopes(r, SCOPE)) return reject(new CalendarError('denied'));
+            if (!oauth.hasGrantedAllScopes(r, EVENTS_SCOPE)) return reject(new CalendarError('denied'));
             resolve({ value: r.access_token, expiresAt: Date.now() + (r.expires_in ?? 3600) * 1000 });
           },
           error_callback: (e) => reject(new CalendarError(e.type === 'popup_closed' ? 'cancelled' : 'unavailable')),
@@ -99,23 +105,53 @@ export function requestToken(prompt: '' | 'consent'): Promise<GoogleToken> {
   });
 }
 
-/** Today's busy events from the primary calendar. */
-export async function fetchTodayEvents(token: GoogleToken, day: Date): Promise<CalendarEvent[]> {
-  const { start, end } = dayBounds(day);
-  const params = new URLSearchParams({ timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime', maxResults: '100' });
+async function getJson<T>(token: GoogleToken, url: string): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-      headers: { authorization: `Bearer ${token.value}` },
-    });
+    res = await fetch(url, { headers: { authorization: `Bearer ${token.value}` } });
   } catch {
     throw new CalendarError('network');
   }
   if (res.status === 401) throw new CalendarError('expired');
   if (res.status === 403) throw new CalendarError('denied');
   if (!res.ok) throw new CalendarError('network');
-  const body = (await res.json()) as { items?: GoogleEvent[] };
-  return parseEvents(body.items ?? [], start, end);
+  return (await res.json()) as T;
+}
+
+/** The calendars switched on in Google Calendar, main one first. Just the main one without the list permission. */
+async function calendarIds(token: GoogleToken): Promise<string[]> {
+  try {
+    const body = await getJson<{ items?: { id: string; primary?: boolean; selected?: boolean; hidden?: boolean; deleted?: boolean }[] }>(
+      token,
+      `${API}/users/me/calendarList?minAccessRole=reader&maxResults=50`,
+    );
+    const on = (body.items ?? []).filter((c) => c.selected !== false && !c.hidden && !c.deleted);
+    const ids = [...on.filter((c) => c.primary), ...on.filter((c) => !c.primary)].map((c) => (c.primary ? 'primary' : c.id));
+    return ids.length ? ids.slice(0, MAX_CALENDARS) : ['primary'];
+  } catch (e) {
+    if (e instanceof CalendarError && e.kind === 'expired') throw e;
+    return ['primary'];
+  }
+}
+
+/** Today's busy events from every calendar that's switched on. */
+export async function fetchTodayEvents(token: GoogleToken, day: Date): Promise<CalendarEvent[]> {
+  const { start, end } = dayBounds(day);
+  const params = new URLSearchParams({ timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime', maxResults: '100' });
+  const ids = await calendarIds(token);
+  const lists = await Promise.all(
+    ids.map((id) =>
+      getJson<{ items?: GoogleEvent[] }>(token, `${API}/calendars/${encodeURIComponent(id)}/events?${params}`).then(
+        (b) => b.items ?? [],
+        (e) => {
+          // The main calendar must work; a shared one that fails is skipped.
+          if (id === 'primary' || (e instanceof CalendarError && e.kind === 'expired')) throw e;
+          return [] as GoogleEvent[];
+        },
+      ),
+    ),
+  );
+  return parseEvents(lists.flat(), start, end);
 }
 
 export function revokeToken(token: GoogleToken | null): void {

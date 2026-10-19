@@ -6,7 +6,7 @@
  *      the user still gets a plan in under a second.
  */
 import { haversineMeters, reroute, type Block, type Context, type Place, type Plan, type RerouteResult } from '@segue/engine';
-import { toEngineBlock, type DayState, type PlaceCache, type StoredBlock } from './model';
+import { localDate, plannedToday, toEngineBlock, type DayState, type FavoritePlace, type PlaceCache, type StoredBlock } from './model';
 
 export const API_URL: string = (import.meta.env?.VITE_API_URL as string | undefined) ?? 'http://localhost:8787';
 
@@ -34,10 +34,15 @@ function cacheFromCandidates(blocks: StoredBlock[], candidates: Record<string, P
   return { savedAt: new Date().toISOString(), location: ctx.location, byCategory };
 }
 
-function candidatesFromCache(blocks: StoredBlock[], cache: PlaceCache | undefined, ctx: Context): Record<string, Place[]> {
+function candidatesFromCache(blocks: StoredBlock[], cache: PlaceCache | undefined, ctx: Context, favorites: FavoritePlace[]): Record<string, Place[]> {
   const out: Record<string, Place[]> = {};
-  if (!cache || haversineMeters(cache.location, ctx.location) > CACHE_RADIUS_M) return out;
-  for (const b of blocks) out[b.id] = cache.byCategory[b.category] ?? [];
+  const near = !!cache && haversineMeters(cache.location, ctx.location) <= CACHE_RADIUS_M;
+  for (const b of blocks) {
+    if (b.fixedStart || b.category === 'none') continue;
+    const mine = favorites.filter((f) => f.category === b.category);
+    const cached = near ? (cache!.byCategory[b.category] ?? []) : [];
+    out[b.id] = [...mine, ...cached.filter((p) => !mine.some((f) => f.id === p.id))];
+  }
   return out;
 }
 
@@ -49,9 +54,14 @@ export async function rerouteDay(opts: {
   forceOffline?: boolean;
   /** already-dated blocks from elsewhere, e.g. Google Calendar events */
   extraBlocks?: Block[];
+  /** 0..1 preference per place id (favourites and history) */
+  affinity?: Record<string, number>;
+  /** "My spots": always considered for blocks of their kind */
+  favorites?: FavoritePlace[];
 }): Promise<RerouteOutcome> {
   const now = new Date(opts.context.now);
-  const active = opts.blocks.filter((b) => b.active);
+  const active = opts.blocks.filter((b) => plannedToday(b, localDate(now)));
+  const favorites = opts.favorites ?? [];
   const engineBlocks = [...active.map((b) => toEngineBlock(b, now)), ...(opts.extraBlocks ?? [])];
   const shared = {
     blocks: engineBlocks,
@@ -59,6 +69,7 @@ export async function rerouteDay(opts: {
     previous: opts.day.plan as Plan | undefined,
     lockedBlockIds: opts.day.lockedIds,
     doneBlockIds: [...opts.day.doneIds, ...opts.day.skippedIds],
+    affinity: opts.affinity && Object.keys(opts.affinity).length ? opts.affinity : undefined,
   };
 
   if (!opts.forceOffline && engineBlocks.length) {
@@ -68,7 +79,7 @@ export async function rerouteDay(opts: {
       const res = await fetch(`${API_URL}/v1/reroute`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(shared),
+        body: JSON.stringify({ ...shared, favorites: favorites.length ? favorites : undefined }),
         signal: ctrl.signal,
       }).finally(() => clearTimeout(timer));
       if (res.ok) {
@@ -88,13 +99,13 @@ export async function rerouteDay(opts: {
     }
   }
 
-  const candidates = candidatesFromCache(active, opts.placeCache, opts.context);
+  const candidates = candidatesFromCache(active, opts.placeCache, opts.context, favorites);
   const hasCache = Object.values(candidates).some((l) => l.length);
   const result = reroute({ ...shared, candidates });
   const warnings = [
     hasCache
-      ? 'Offline: planned on your phone with places saved from your last connection. Opening hours may have changed.'
-      : 'Offline and no saved places near here: blocks that need a place use their fallback.',
+      ? 'Offline: planned with saved places. Opening hours may have changed.'
+      : 'Offline, with no saved places near here, so plans that need a place use their backup.',
   ];
   return { ...result, source: 'device', warnings };
 }

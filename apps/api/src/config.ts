@@ -6,6 +6,9 @@ export interface Config {
   googleDailyBudget: number;
   corsOrigins: string[];
   rerouteRateLimit: number;
+  /** "Ask in your own words" via Claude. Needs Anthropic credentials. */
+  smartAdd: boolean;
+  smartAddRateLimit: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -25,6 +28,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    rerouteRateLimit: Number(env.REROUTE_RATE_LIMIT ?? 30),
+    rerouteRateLimit: Number(env.REROUTE_RATE_LIMIT ?? 60),
+    // On with SMART_ADD=on, or automatically when an Anthropic key is set (SMART_ADD=off wins).
+    smartAdd: env.SMART_ADD === 'on' || (env.SMART_ADD !== 'off' && !!env.ANTHROPIC_API_KEY),
+    smartAddRateLimit: Number(env.SMART_ADD_RATE_LIMIT ?? 40),
   };
 }

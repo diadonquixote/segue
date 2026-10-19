@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@segue/engine": "workspace:*",
     "@segue/providers": "workspace:*",
     "@segue/schemas": "workspace:*",

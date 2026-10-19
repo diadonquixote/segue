@@ -35,12 +35,19 @@ export interface StoredBlock {
   fallback?: string;
   /** false = paused, not planned */
   active: boolean;
+  /** Local "YYYY-MM-DD" for a one-off: planned that day only. Missing = a routine that repeats every day. */
+  date?: string;
 }
 
 export interface Settings {
   endOfDay: string; // "HH:MM"
   energy: Energy;
   mode: TravelMode;
+  /** finished the first-run setup */
+  onboarded?: boolean;
+  tempUnit?: 'C' | 'F';
+  /** "leave now", rain and running-over reminders */
+  reminders?: boolean;
   lastLocation?: LatLng;
   lastLocationLabel?: string;
   /** ISO time of the last real position fix */
@@ -92,7 +99,7 @@ export const REQUIREMENT_LABEL: Record<Requirement, string> = {
 export const PRIORITY_LABEL: Record<Priority, string> = {
   must: 'Must do',
   should: 'Should do',
-  nice: 'Nice to do',
+  nice: "If there's time",
 };
 
 export const MODE_LABEL: Record<TravelMode, string> = {
@@ -102,7 +109,7 @@ export const MODE_LABEL: Record<TravelMode, string> = {
   drive: 'Car or ride-hail',
 };
 
-export const ENERGY_LABEL: Record<Energy, string> = { low: 'Low', medium: 'Okay', high: 'High' };
+export const ENERGY_LABEL: Record<Energy, string> = { low: 'Tired', medium: 'Okay', high: 'Great' };
 
 /** Local "YYYY-MM-DD" for a Date. */
 export function localDate(d = new Date()): string {
@@ -145,6 +152,27 @@ export function toEngineBlock(b: StoredBlock, now = new Date()): Block {
   if (b.earliest) block.earliest = todayAt(b.earliest, now);
   if (b.latest) block.latest = todayAt(b.latest, now);
   return block;
+}
+
+/** Blocks that count today: routines, plus one-offs dated today. */
+export function plannedToday(b: StoredBlock, date: string): boolean {
+  return b.active && (!b.date || b.date === date);
+}
+
+/** A saved favourite place: preferred whenever a block needs that kind of place. */
+export type FavoritePlace = Place;
+
+/** What happened at each place: feeds the engine's place affinity. */
+export type PlaceHistory = Record<string, { done: number; skipped: number }>;
+
+/** 0..1 preference per place id: favourites first, then places you keep going back to. */
+export function affinityFrom(history: PlaceHistory, favorites: FavoritePlace[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, h] of Object.entries(history)) {
+    out[id] = Math.min(0.9, Math.max(0, 0.5 + 0.1 * h.done - 0.15 * h.skipped));
+  }
+  for (const f of favorites) out[f.id] = 1;
+  return out;
 }
 
 export function newId(prefix = 'b'): string {

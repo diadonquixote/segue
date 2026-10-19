@@ -2,7 +2,7 @@
 
 **A day planner that re-routes itself when life goes off-script.**
 
-Calendars assume you stay put. When you're always moving city to city, one missed ride or a closed café breaks the whole day. Segue plans your day as flexible **blocks**: what you want to do, and what kind of place it needs, not a fixed time and address. When something changes, tap **Re-route from here** and it rebuilds the rest of the day around where you are, what's open, the weather, and how much time and energy you have left.
+Calendars assume you stay put. When you're always moving city to city, one missed ride or a closed café breaks the whole day. Tell Segue what you want to do in plain words ("Gym 1h after 5pm", "Lunch with Ana 12:30 at Greenbelt"), and it finds the time and the place. When something changes, tap **Re-route from here**, optionally say what happened (*running late*, *it's raining*, *I'm tired*), and it rebuilds the rest of the day around where you are, what's open, the weather, rush hour and your Google Calendar.
 
 > *Segue* (n.) — in music, moving from one piece into the next without a pause.
 
@@ -13,8 +13,8 @@ Calendars assume you stay put. When you're always moving city to city, one misse
 | `packages/engine` | The re-routing engine. Pure TypeScript, no I/O, so it runs on the server **and** offline on the phone. Greedy insertion + local search, opening hours, travel time, rain, energy, fallbacks, explanations, and plan diffs. |
 | `packages/schemas` | Zod schemas for every request and record. |
 | `packages/providers` | Places (OpenStreetMap, Google Places, mock), weather (Open-Meteo), and the Places Gateway cost controls: geohash cache, fallback chain, daily budget. |
-| `apps/api` | HTTP API (`POST /v1/reroute`, `GET /v1/places/nearby`, `GET /v1/weather`, `GET /health`). Zero-framework Node server with validation, CORS and rate limits. |
-| `apps/web` | Installable PWA (React + Vite). Today view, blocks, re-route sheet with alternatives and a change list, undo, pin, done/skip, offline re-route on the device. |
+| `apps/api` | HTTP API (`POST /v1/reroute`, `POST /v1/understand`, `GET /v1/places/nearby`, `GET /v1/weather`, `GET /v1/weather/now`, `GET /health`). Zero-framework Node server with validation, CORS and rate limits. |
+| `apps/web` | Installable PWA (React + Vite). First-run setup, plain-words adding, a day timeline with swipe gestures, one-tap re-route with reasons, nudges and reminders, My spots, Google Calendar, an animated weather sky, undo, and offline re-route on the device. |
 | `docs/ARCHITECTURE.md` | How it fits together, and the roadmap. |
 
 ## Quick start
@@ -52,7 +52,7 @@ Google calls are capped per day (`GOOGLE_DAILY_BUDGET`, default 500) and fall ba
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or pick a project and enable the **Google Calendar API**.
 2. Under **Google Auth Platform → Branding/Audience**, set up the consent screen. While the app is in *Testing*, add your own Google account as a test user.
-3. Under **Data Access**, add the scope `https://www.googleapis.com/auth/calendar.events.readonly`.
+3. Under **Data Access**, add the scopes `https://www.googleapis.com/auth/calendar.events.readonly` and `https://www.googleapis.com/auth/calendar.calendarlist.readonly` (the second lets Segue read every calendar you have switched on; without it, only your main one).
 4. Under **Clients**, create an OAuth client of type **Web application**. Add `http://localhost:5173` (and your production URL) to **Authorized JavaScript origins**. No redirect URI is needed.
 5. Put the client ID in `apps/web/.env`:
 
@@ -60,14 +60,21 @@ Google calls are capped per day (`GOOGLE_DAILY_BUDGET`, default 500) and fall ba
    cp apps/web/.env.example apps/web/.env   # then set VITE_GOOGLE_CLIENT_ID=…apps.googleusercontent.com
    ```
 
-6. Restart `pnpm dev:web`, open **Blocks**, and tap **Connect Google Calendar**.
+6. Restart `pnpm dev:web`, open **Settings** (the gear), and tap **Connect Google Calendar**.
 
-Segue only reads your primary calendar, and only today's timed events; it never changes your calendar. Sign-in happens in the browser and the short-lived token stays in memory, so the API never sees it. To let other people connect, Google has to verify the app for this scope (publish the consent screen and submit it for review).
+Segue only reads today's timed events, and never changes your calendar. Sign-in happens in the browser and the short-lived token stays in memory, so the API never sees it. To let other people connect, Google has to verify the app for this scope (publish the consent screen and submit it for review).
+
+**Smart add** ("Let Segue read it" for notes the phone can't parse) needs an Anthropic API key on the server:
+
+```bash
+ANTHROPIC_API_KEY=... pnpm dev:api     # SMART_ADD=off turns it off again
+```
 
 ## Scripts
 
 ```bash
 pnpm test        # all unit, scenario, property and API tests
+pnpm e2e         # browser tests of the main flows (first time: pnpm --filter @segue/web exec playwright install chromium)
 pnpm typecheck   # strict TypeScript across the monorepo
 pnpm build       # web → apps/web/dist, API → apps/api/dist/server.js
 pnpm --filter @segue/engine bench   # engine speed on a busy day

@@ -57,7 +57,7 @@ export function CalendarCard({ calendar, today, busy, error, onConnect, onSync, 
       {!calendar.connected ? (
         <>
           <p className="muted small">
-            Bring in today's meetings and classes. Segue plans around them and never changes your calendar.
+            Bring in today's meetings and classes from the calendars you have switched on. Segue plans around them and never changes your calendar.
           </p>
           <button type="button" className="primary" onClick={onConnect} disabled={busy}>
             {busy ? 'Connecting…' : 'Connect Google Calendar'}

@@ -181,7 +181,8 @@ export interface Weights {
   missingMust: number;
 }
 
-export type TravelFn = (from: LatLng, to: LatLng, mode: TravelMode) => number;
+/** Door-to-door minutes. `departMs`, when given, lets estimates account for rush hour. */
+export type TravelFn = (from: LatLng, to: LatLng, mode: TravelMode, departMs?: number) => number;
 
 export interface RerouteInput {
   blocks: Block[];

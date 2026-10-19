@@ -1,59 +1,71 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import type { Energy, PlaceCategory, Priority, Requirement, TimePref } from '@segue/engine';
 import { duration } from '../lib/format';
-import { CATEGORY_LABEL, PRIORITY_LABEL, REQUIREMENT_LABEL, newId, type StoredBlock } from '../lib/model';
+import { CATEGORY_LABEL, PRIORITY_LABEL, REQUIREMENT_LABEL, localDate, newId, type StoredBlock } from '../lib/model';
 import { Segmented, Sheet } from './Sheet';
 
-export function BlocksView({
+function BlockRow({ b, onEdit, onToggle }: { b: StoredBlock; onEdit: (id: string) => void; onToggle: (id: string) => void }) {
+  return (
+    <li className={b.active ? '' : 'paused'}>
+      <button type="button" className="block-main" onClick={() => onEdit(b.id)}>
+        <span className="stave-title">{b.title}</span>
+        <span className="stave-sub">
+          {b.fixedStart ? `${b.fixedStart}–${b.fixedEnd}` : duration(b.maxMinutes)} · {CATEGORY_LABEL[b.category]}
+          {b.priority !== 'should' && ` · ${PRIORITY_LABEL[b.priority]}`}
+        </span>
+      </button>
+      <label className="switch">
+        <input type="checkbox" checked={b.active} onChange={() => onToggle(b.id)} />
+        <span className="visually-hidden">Plan {b.title}</span>
+        <span className="track" aria-hidden="true" />
+      </label>
+    </li>
+  );
+}
+
+/** Routines repeat every day; one-offs belong to today only. */
+export function RoutinesView({
   blocks,
+  today,
   onEdit,
   onAdd,
   onToggle,
-  calendar,
 }: {
   blocks: StoredBlock[];
-  /** the Google Calendar card */
-  calendar?: ReactNode;
+  today: string;
   onEdit: (id: string) => void;
   onAdd: () => void;
   onToggle: (id: string) => void;
 }) {
-  const groups: Priority[] = ['must', 'should', 'nice'];
+  const oneOffs = blocks.filter((b) => b.date === today);
+  const routines = blocks.filter((b) => !b.date);
   return (
     <>
-      <p className="muted intro">
-        Blocks are what you want from a day, not when or where. Segue finds the time and place each time you re-route.
-      </p>
-      {calendar}
-      {groups.map((p) => {
-        const list = blocks.filter((b) => b.priority === p);
-        if (!list.length) return null;
-        return (
-          <section key={p} aria-label={PRIORITY_LABEL[p]}>
-            <h3 className="section-title">{PRIORITY_LABEL[p]}</h3>
-            <ul className="blocks">
-              {list.map((b) => (
-                <li key={b.id} className={b.active ? '' : 'paused'}>
-                  <button type="button" className="block-main" onClick={() => onEdit(b.id)}>
-                    <span className="stave-title">{b.title}</span>
-                    <span className="stave-sub">
-                      {b.fixedStart ? `${b.fixedStart}–${b.fixedEnd}` : duration(b.maxMinutes)} · {CATEGORY_LABEL[b.category]}
-                      {b.requirements.length > 0 && ` · ${b.requirements.map((r) => REQUIREMENT_LABEL[r]).join(', ')}`}
-                    </span>
-                  </button>
-                  <label className="switch">
-                    <input type="checkbox" checked={b.active} onChange={() => onToggle(b.id)} />
-                    <span className="visually-hidden">Plan {b.title} today</span>
-                    <span className="track" aria-hidden="true" />
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </section>
-        );
-      })}
+      <p className="muted intro">Routines repeat every day; switch one off to skip it for a while. Segue finds the time and place each time you re-route.</p>
+      {oneOffs.length > 0 && (
+        <section aria-label="Today only">
+          <h3 className="section-title">Today only</h3>
+          <ul className="blocks">
+            {oneOffs.map((b) => (
+              <BlockRow key={b.id} b={b} onEdit={onEdit} onToggle={onToggle} />
+            ))}
+          </ul>
+        </section>
+      )}
+      <section aria-label="Every day">
+        <h3 className="section-title">Every day</h3>
+        {routines.length === 0 ? (
+          <p className="muted small">No routines yet. Add the things you do most days, like a workout or deep work.</p>
+        ) : (
+          <ul className="blocks">
+            {routines.map((b) => (
+              <BlockRow key={b.id} b={b} onEdit={onEdit} onToggle={onToggle} />
+            ))}
+          </ul>
+        )}
+      </section>
       <button type="button" className="ghost wide" onClick={onAdd}>
-        Add a block
+        Add a routine
       </button>
     </>
   );
@@ -64,11 +76,14 @@ const REQUIREMENTS = Object.keys(REQUIREMENT_LABEL) as Requirement[];
 
 export function BlockForm({
   initial,
+  isNew,
   onSave,
   onDelete,
   onClose,
 }: {
   initial?: StoredBlock;
+  /** a draft from quick add, not yet saved */
+  isNew?: boolean;
   onSave: (b: StoredBlock) => void;
   onDelete?: (id: string) => void;
   onClose: () => void;
@@ -86,11 +101,12 @@ export function BlockForm({
     },
   );
   const [fixed, setFixed] = useState(Boolean(initial?.fixedStart));
+  const editing = !!initial && !isNew;
   const [error, setError] = useState<string | null>(null);
   const set = (patch: Partial<StoredBlock>) => setB((prev) => ({ ...prev, ...patch }));
 
   function submit() {
-    if (!b.title.trim()) return setError('Give the block a name.');
+    if (!b.title.trim()) return setError('Give it a name.');
     if (fixed && (!b.fixedStart || !b.fixedEnd || b.fixedEnd <= b.fixedStart)) {
       return setError('A fixed block needs a start and an end time, with the end after the start.');
     }
@@ -110,7 +126,7 @@ export function BlockForm({
   }
 
   return (
-    <Sheet title={initial ? 'Edit block' : 'New block'} onClose={onClose}>
+    <Sheet title={editing ? 'Edit' : b.date ? 'Add to today' : 'New routine'} onClose={onClose}>
       <form
         className="form"
         onSubmit={(e) => {
@@ -122,6 +138,16 @@ export function BlockForm({
           <span>Name</span>
           <input value={b.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Study for the quiz" maxLength={80} />
         </label>
+
+        <Segmented
+          label="When"
+          value={b.date ? 'today' : 'daily'}
+          onChange={(v) => set({ date: v === 'today' ? localDate() : undefined })}
+          options={[
+            { value: 'today', label: 'Today only' },
+            { value: 'daily', label: 'Every day' },
+          ]}
+        />
 
         <Segmented
           label="How important"
@@ -153,7 +179,8 @@ export function BlockForm({
             </label>
           </>
         ) : (
-          <>
+          <details className="more" open={editing && !!(b.earliest || b.latest || b.timePref || b.energy || b.requirements.length)}>
+            <summary>More options: how long, where, when</summary>
             <div className="pair">
               <label className="field">
                 <span>At least (min)</span>
@@ -236,7 +263,7 @@ export function BlockForm({
                 <input value={b.fallback ?? ''} onChange={(e) => set({ fallback: e.target.value || undefined })} placeholder="e.g. Bodyweight workout at home" maxLength={120} />
               </label>
             )}
-          </>
+          </details>
         )}
 
         {error && (
@@ -246,11 +273,11 @@ export function BlockForm({
         )}
 
         <button type="submit" className="primary wide">
-          {initial ? 'Save block' : 'Add block'}
+          {editing ? 'Save' : 'Add'}
         </button>
-        {initial && onDelete && (
-          <button type="button" className="danger wide" onClick={() => onDelete(initial.id)}>
-            Delete block
+        {editing && onDelete && (
+          <button type="button" className="danger wide" onClick={() => onDelete(initial!.id)}>
+            Delete
           </button>
         )}
       </form>

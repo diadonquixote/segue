@@ -3,7 +3,7 @@
  * - Fonts: cache-first.
  * - API calls: always network; the app itself falls back to its on-device engine.
  */
-const VERSION = 'segue-v8';
+const VERSION = 'segue-v9';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/wordmark-light.svg'];
 
 self.addEventListener('install', (event) => {
@@ -62,6 +62,17 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => hit);
       return hit || network;
+    }),
+  );
+});
+
+// Tapping a reminder brings Segue to the front (or opens it).
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => 'focus' in c);
+      return open ? open.focus() : self.clients.openWindow('/');
     }),
   );
 });

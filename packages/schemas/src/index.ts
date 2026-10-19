@@ -112,6 +112,14 @@ export const RerouteRequestSchema = z.object({
   affinity: z.record(z.string(), z.number().min(0).max(1)).optional(),
   /** Skip the server's place search and use these (e.g. from the phone's cache). */
   candidates: z.record(z.string(), z.array(PlaceSchema).max(40)).optional(),
+  /** The user's saved places ("My spots"): always considered for blocks of their category. */
+  favorites: z.array(PlaceSchema).max(30).optional(),
+});
+
+export const UnderstandRequestSchema = z.object({
+  text: z.string().trim().min(1).max(500),
+  /** the user's local wall-clock time, e.g. "Monday 14:05" */
+  localTime: z.string().max(40),
 });
 
 export const NearbyQuerySchema = z.object({

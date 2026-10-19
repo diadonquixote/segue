@@ -1,57 +1,59 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FallbackOption, Plan } from '@segue/engine';
-import { BlockForm, BlocksView } from './components/Blocks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FallbackOption, Place, Plan, PlanItem } from '@segue/engine';
+import { BlockForm, RoutinesView } from './components/Blocks';
 import { CalendarCard } from './components/CalendarCard';
-import { RerouteSheet, type RerouteChoices } from './components/RerouteSheet';
+import { ItemSheet } from './components/ItemSheet';
+import { Onboarding } from './components/Onboarding';
+import { QuickAdd } from './components/QuickAdd';
+import { ReplanSheet } from './components/ReplanSheet';
+import { SettingsSheet } from './components/SettingsSheet';
 import { SkyHeader, type LocationStatus, type View } from './components/SkyHeader';
-import { Today } from './components/Today';
-import { EMPTY_CALENDAR, calendarBlocks, type CalendarState } from './lib/calendar';
+import { Timeline } from './components/Timeline';
+import { calendarBlockId } from './lib/calendar';
 import { clock } from './lib/format';
-import {
-  CalendarError,
-  calendarErrorMessage,
-  fetchTodayEvents,
-  requestToken,
-  revokeToken,
-  tokenValid,
-  type GoogleToken,
-} from './lib/googleCalendar';
+import { GOOGLE_CLIENT_ID } from './lib/googleCalendar';
+import { useNow, usePersisted } from './lib/hooks';
 import { currentLocation, locate, locationPermission } from './lib/location';
-import { emptyDay, localDate, todayAt, utcOffsetMinutes, type DayState, type PlaceCache, type Settings, type StoredBlock } from './lib/model';
+import {
+  affinityFrom,
+  emptyDay,
+  localDate,
+  plannedToday,
+  todayAt,
+  utcOffsetMinutes,
+  type DayState,
+  type FavoritePlace,
+  type PlaceCache,
+  type PlaceHistory,
+  type Settings,
+  type StoredBlock,
+} from './lib/model';
+import { activeNudges, nudgesFor } from './lib/nudges';
+import { BUSY_BLOCK_ID, adjustFor, type ReplanReason } from './lib/replan';
 import { rerouteDay, type RerouteOutcome } from './lib/reroute';
 import { DEFAULT_LOCATION, DEFAULT_SETTINGS, SEED_BLOCKS } from './lib/seed';
-import { getItem, setItem } from './lib/store';
+import { clearAll, getItem } from './lib/store';
+import { useCalendar } from './lib/useCalendar';
+import { askNotificationPermission, useReminders } from './lib/useReminders';
 import { useSky } from './lib/useSky';
 
 /** The API takes at most this many blocks per re-route (packages/schemas). */
 const MAX_BLOCKS = 30;
-/** Older than this, a re-route mentions when the calendar was last synced. */
-const CALENDAR_STALE_MS = 3 * 60 * 60_000;
+const UNDO_DEPTH = 10;
 
-type SheetState = { kind: 'reroute' } | { kind: 'block'; id: string | null } | null;
+type SheetState =
+  | { kind: 'replan' }
+  | { kind: 'item'; id: string }
+  | { kind: 'block'; id: string | null; draft?: StoredBlock }
+  | { kind: 'settings' }
+  | null;
 
-function usePersisted<T>(key: string, initial: T, ready: boolean): [T, (v: T | ((p: T) => T)) => void] {
-  const [value, setValue] = useState<T>(initial);
-  const first = useRef(true);
-  useEffect(() => {
-    if (!ready) return;
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    void setItem(key, value);
-  }, [key, value, ready]);
-  return [value, setValue];
+interface Toast {
+  text: string;
+  undo?: boolean;
 }
 
-function useNow(intervalMs = 30_000) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), intervalMs);
-    return () => clearInterval(t);
-  }, [intervalMs]);
-  return now;
-}
+const hhmmToIso = (hhmm: string, d = new Date()) => new Date(todayAt(hhmm, d)).toISOString();
 
 export function App() {
   const [ready, setReady] = useState(false);
@@ -59,40 +61,47 @@ export function App() {
   const [settings, setSettings] = usePersisted<Settings>('settings', DEFAULT_SETTINGS, ready);
   const [day, setDay] = usePersisted<DayState>('day', emptyDay(), ready);
   const [placeCache, setPlaceCache] = usePersisted<PlaceCache | undefined>('placeCache', undefined, ready);
-  const [undo, setUndo] = useState<DayState | null>(null);
+  const [favorites, setFavorites] = usePersisted<FavoritePlace[]>('favorites', [], ready);
+  const [history, setHistory] = usePersisted<PlaceHistory>('placeHistory', {}, ready);
+  const [undoStack, setUndoStack] = useState<DayState[]>([]);
   const [view, setView] = useState<View>('today');
   const [sheet, setSheet] = useState<SheetState>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [proposal, setProposal] = useState<RerouteOutcome | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
-  const [calendar, setCalendar] = usePersisted<CalendarState>('calendar', EMPTY_CALENDAR, ready);
-  const [calendarBusy, setCalendarBusy] = useState(false);
-  const [calendarError, setCalendarError] = useState<string | null>(null);
-  // Google's access token: memory only, never saved, never sent to the Segue API.
-  const googleToken = useRef<GoogleToken | null>(null);
+  const [replanBusy, setReplanBusy] = useState(false);
+  const [replanError, setReplanError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<RerouteOutcome | null>(null);
+  const [reason, setReason] = useState<ReplanReason | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [seed, setSeed] = useState<{ text: string; n: number } | undefined>();
   const now = useNow();
+  const today = localDate(now);
+  const notify = useCallback((text: string) => setToast({ text }), []);
+  const cal = useCalendar(ready, notify);
   const sky = useSky(settings.lastLocation ?? DEFAULT_LOCATION, now);
 
   // Load everything from the device first, so the app opens instantly offline.
   useEffect(() => {
     void (async () => {
-      const [b, s, d, c, cal] = await Promise.all([
+      const [b, s, d, c, f, h, calendar] = await Promise.all([
         getItem<StoredBlock[]>('blocks'),
         getItem<Settings>('settings'),
         getItem<DayState>('day'),
         getItem<PlaceCache>('placeCache'),
-        getItem<CalendarState>('calendar'),
+        getItem<FavoritePlace[]>('favorites'),
+        getItem<PlaceHistory>('placeHistory'),
+        getItem<typeof cal.calendar>('calendar'),
       ]);
-      setBlocks(b ?? SEED_BLOCKS);
-      setSettings({ ...DEFAULT_SETTINGS, ...s });
+      // People who used Segue before the setup screens existed skip them.
+      setBlocks(b ?? []);
+      setSettings({ ...DEFAULT_SETTINGS, ...s, onboarded: s?.onboarded ?? !!b?.length });
       setDay(d && d.date === localDate() ? d : emptyDay());
       setPlaceCache(c);
-      if (cal) setCalendar(cal);
+      setFavorites(f ?? []);
+      setHistory(h ?? {});
+      if (calendar) cal.setCalendar(calendar);
       setReady(true);
-      if (!b) await setItem('blocks', SEED_BLOCKS);
       // Already allowed: quietly refresh where we are, so the sky is local. Never prompts.
       const permission = await locationPermission();
       if (permission === 'granted') void locateNow({ quiet: true });
@@ -103,9 +112,34 @@ export function App() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3500);
+    const t = setTimeout(() => setToast(null), toast.undo ? 6000 : 3500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // A new day starts with a clean slate.
+  useEffect(() => {
+    if (ready && day.date !== today) {
+      setDay(emptyDay(today));
+      setUndoStack([]);
+    }
+  }, [today, ready, day.date, setDay]);
+
+  /** Change the day so it can be undone. */
+  const changeDay = useCallback(
+    (next: (d: DayState) => DayState) => {
+      setUndoStack((s) => [day, ...s].slice(0, UNDO_DEPTH));
+      setDay(next(day));
+    },
+    [day, setDay],
+  );
+
+  function undo() {
+    const [prev, ...rest] = undoStack;
+    if (!prev) return;
+    setDay(prev);
+    setUndoStack(rest);
+    setToast({ text: 'Undone.' });
+  }
 
   async function locateNow({ quiet = false } = {}) {
     setLocating(true);
@@ -115,176 +149,160 @@ export function App() {
       const at = new Date().toISOString();
       setLocationDenied(false);
       setSettings((s) => ({ ...s, lastLocation: found.location, lastLocationLabel: `near you at ${clock(at)}`, lastLocatedAt: at }));
-      if (!quiet) setToast('Using your location. Re-route to plan around it.');
+      if (!quiet) setToast({ text: 'Using your location.' });
     } else if (found.reason === 'denied') {
       setLocationDenied(true);
+      if (!quiet) setToast({ text: "Location is blocked. Allow it in your browser's site settings." });
     } else if (!quiet) {
-      setToast("Couldn't find you. Try again in a moment.");
+      setToast({ text: "Couldn't find you. Try again in a moment." });
     }
   }
 
-  /**
-   * Fetch today's events. Runs from a tap: if a new Google token is needed,
-   * the sign-in popup must open before the first await, which it does here.
-   */
-  async function syncCalendar(prompt: '' | 'consent' = '') {
-    setCalendarBusy(true);
-    setCalendarError(null);
-    try {
-      if (prompt === 'consent' || !tokenValid(googleToken.current)) googleToken.current = await requestToken(prompt);
-      const events = await fetchTodayEvents(googleToken.current, new Date());
-      setCalendar({ connected: true, date: localDate(), events, syncedAt: new Date().toISOString() });
-      const count = events.length === 1 ? '1 event' : `${events.length} events`;
-      setToast(
-        !calendar.connected
-          ? `Google Calendar connected: ${count} today. Re-route to plan around them.`
-          : `Calendar synced: ${count} today.`,
-      );
-    } catch (e) {
-      if (e instanceof CalendarError && e.kind === 'expired') googleToken.current = null;
-      setCalendarError(calendarErrorMessage(e));
-    } finally {
-      setCalendarBusy(false);
-    }
+  function applyPlan(o: RerouteOutcome, plan: Plan, pendingBusy?: StoredBlock) {
+    const had = !!day.plan;
+    changeDay((d) => ({
+      ...d,
+      plan,
+      alternatives: o.alternatives,
+      changes: plan === o.plan ? o.changes : [],
+      generatedAt: new Date().toISOString(),
+      source: o.source,
+      warnings: o.warnings,
+      lockedIds: d.lockedIds.filter((id) => plan.items.some((i) => i.blockId === id)),
+    }));
+    // "Something came up" keeps that hour blocked for the rest of the day.
+    if (pendingBusy) setBlocks((list) => [...list.filter((b) => b.id !== BUSY_BLOCK_ID), pendingBusy]);
+    setOutcome(null);
+    setReason(null);
+    setSheet(null);
+    setView('today');
+    if (had) setToast({ text: 'Plan updated.', undo: true });
+    navigator.vibrate?.(12);
   }
 
-  function disconnectCalendar() {
-    revokeToken(googleToken.current);
-    googleToken.current = null;
-    setCalendar(EMPTY_CALENDAR);
-    setCalendarError(null);
-    setToast('Google Calendar disconnected. Re-route to take its events out of your plan.');
-  }
+  const pendingBusy = useRef<StoredBlock | undefined>(undefined);
 
-  /** Calendar blocks for a re-route, refreshed first when there's a live token. */
-  async function calendarForReroute(start: Date, room: number): Promise<{ extra: ReturnType<typeof calendarBlocks>; warnings: string[] }> {
-    let cal = calendar;
-    if (!cal.connected) return { extra: [], warnings: [] };
-    if (tokenValid(googleToken.current)) {
-      try {
-        const events = await fetchTodayEvents(googleToken.current, start);
-        cal = { connected: true, date: localDate(start), events, syncedAt: start.toISOString() };
-        setCalendar(cal);
-      } catch {
-        // keep what was saved; the warnings below say how old it is
-      }
-    }
-    const warnings: string[] = [];
-    if (cal.date !== localDate(start)) {
-      warnings.push("Your Google Calendar hasn't synced today, so its events aren't included. Tap Sync now in Blocks.");
-      return { extra: [], warnings };
-    }
-    if (cal.syncedAt && start.getTime() - Date.parse(cal.syncedAt) > CALENDAR_STALE_MS) {
-      warnings.push(`Calendar events are from ${clock(cal.syncedAt)}. Sync in Blocks if anything changed.`);
-    }
-    if (cal.events.length > room) {
-      warnings.push(`Only ${room} of today's ${cal.events.length} calendar events fit in one plan. Pause a few blocks to fit the rest.`);
-    }
-    return { extra: calendarBlocks(cal.events, room), warnings };
-  }
-
-  // A new day starts with a clean slate.
-  useEffect(() => {
-    if (ready && day.date !== localDate(now)) setDay(emptyDay(localDate(now)));
-  }, [now, ready, day.date, setDay]);
-
-  const run = useCallback(
-    async (choices: RerouteChoices, opts: { autoAccept: boolean }) => {
-      setBusy(true);
-      setError(null);
+  /** Rebuild the rest of the day. One tap, no form; `why` tweaks what the engine is told. */
+  const replan = useCallback(
+    async (why: ReplanReason | null, opts: { autoAccept?: boolean } = {}) => {
+      setReplanBusy(true);
+      setReplanError(null);
+      setReason(why);
+      setOutcome(null);
+      if (!opts.autoAccept) setSheet({ kind: 'replan' });
       try {
         const start = new Date();
-        const endOfDay = todayAt(choices.endOfDay, start);
+        const endOfDay = todayAt(settings.endOfDay, start);
         if (Date.parse(endOfDay) <= start.getTime() + 15 * 60_000) {
-          setError('That end time has already passed. Pick a later one.');
+          setReplanError(`Your day is set to end at ${clock(endOfDay)}. Change it in Settings to plan more.`);
           return;
         }
-        const located = choices.useLocation ? await currentLocation() : null;
+        const adj = adjustFor(why, start, settings.energy, endOfDay);
+        const located = await currentLocation(8000, adj.refreshLocation);
         const location = located ?? settings.lastLocation ?? DEFAULT_LOCATION;
-        const nextSettings: Settings = {
-          ...settings,
-          endOfDay: choices.endOfDay,
-          energy: choices.energy,
-          mode: choices.mode,
-          lastLocation: location,
-          lastLocationLabel: located ? `near you at ${clock(start.toISOString())}` : settings.lastLocationLabel,
-          lastLocatedAt: located ? start.toISOString() : settings.lastLocatedAt,
-        };
-        setSettings(nextSettings);
-        const room = MAX_BLOCKS - blocks.filter((b) => b.active).length;
-        const fromCalendar = await calendarForReroute(start, room);
-        const outcome = await rerouteDay({
-          blocks,
+        if (located) {
+          setSettings((s) => ({ ...s, lastLocation: located, lastLocationLabel: `near you at ${clock(start.toISOString())}`, lastLocatedAt: start.toISOString() }));
+        }
+        const planned = blocks.filter((b) => plannedToday(b, localDate(start)) && b.id !== BUSY_BLOCK_ID);
+        const room = MAX_BLOCKS - planned.length - adj.extraBlocks.length;
+        const fromCalendar = await cal.forReroute(adj.start, room);
+        const o = await rerouteDay({
+          blocks: planned,
           day,
           placeCache,
-          extraBlocks: fromCalendar.extra,
+          favorites,
+          affinity: affinityFrom(history, favorites),
+          extraBlocks: [...adj.extraBlocks, ...fromCalendar.extra],
           context: {
-            now: start.toISOString(),
+            now: adj.start.toISOString(),
             endOfDay,
             location,
-            energy: choices.energy,
-            mode: choices.mode,
+            energy: adj.energy,
+            mode: settings.mode,
             utcOffsetMinutes: utcOffsetMinutes(start),
+            weather: adj.weather,
           },
         });
-        if (!located && choices.useLocation) {
-          outcome.warnings.unshift(
-            settings.lastLocation
-              ? "Couldn't get your location, so this uses where you last re-routed."
-              : "Couldn't get your location, so this assumes Metro Manila. Allow location access for better places.",
-          );
-        }
-        outcome.warnings.push(...fromCalendar.warnings);
-        if (outcome.placeCache) setPlaceCache(outcome.placeCache);
-        if (opts.autoAccept) {
-          applyPlan(outcome, outcome.plan);
-        } else {
-          setProposal(outcome);
-        }
+        if (!located && !settings.lastLocation) o.warnings.unshift("No location yet, so this plans from Metro Manila. Tap Use my location for nearby places.");
+        o.warnings.push(...fromCalendar.warnings);
+        if (o.placeCache) setPlaceCache(o.placeCache);
+        const busy = adj.extraBlocks.find((b) => b.id === BUSY_BLOCK_ID);
+        pendingBusy.current = busy?.fixed
+          ? {
+              id: BUSY_BLOCK_ID,
+              title: busy.title,
+              minMinutes: busy.minMinutes,
+              maxMinutes: busy.maxMinutes,
+              priority: 'must',
+              category: 'none',
+              requirements: [],
+              fixedStart: new Date(busy.fixed.start).toTimeString().slice(0, 5),
+              fixedEnd: new Date(busy.fixed.end).toTimeString().slice(0, 5),
+              active: true,
+              date: localDate(start),
+            }
+          : undefined;
+        if (opts.autoAccept) applyPlan(o, o.plan, pendingBusy.current);
+        else setOutcome(o);
+      } catch {
+        setReplanError("Couldn't build a plan just now. Try again.");
       } finally {
-        setBusy(false);
+        setReplanBusy(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [blocks, day, placeCache, settings, calendar],
+    [blocks, day, placeCache, settings, favorites, history, cal.calendar],
   );
-
-  function applyPlan(outcome: RerouteOutcome, plan: Plan) {
-    setUndo(day.plan ? day : null);
-    setDay({
-      ...day,
-      plan,
-      alternatives: outcome.alternatives,
-      changes: plan === outcome.plan ? outcome.changes : [],
-      generatedAt: new Date().toISOString(),
-      source: outcome.source,
-      warnings: outcome.warnings,
-      lockedIds: day.lockedIds.filter((id) => plan.items.some((i) => i.blockId === id)),
-    });
-    setProposal(null);
-    setSheet(null);
-    setView('today');
-    if (day.plan) setToast('Plan updated.');
-  }
 
   // First open of the day: plan it straight away.
   const autoPlanned = useRef(false);
   useEffect(() => {
-    if (!ready || autoPlanned.current || day.plan || !blocks.some((b) => b.active)) return;
+    if (!ready || !settings.onboarded || autoPlanned.current || day.plan) return;
+    const hasCalendar = cal.calendar.connected && cal.calendar.date === today && cal.calendar.events.length > 0;
+    if (!blocks.some((b) => plannedToday(b, today)) && !hasCalendar) return;
     autoPlanned.current = true;
-    void run({ endOfDay: settings.endOfDay, energy: settings.energy, mode: settings.mode, useLocation: true }, { autoAccept: true });
-  }, [ready, day.plan, blocks, settings, run]);
+    void replan(null, { autoAccept: true });
+  }, [ready, settings.onboarded, day.plan, blocks, cal.calendar, today, replan]);
 
-  const mark = (field: 'doneIds' | 'skippedIds', id: string) => {
-    setDay((d) => ({ ...d, [field]: [...new Set([...d[field], id])] }));
-    setToast(field === 'doneIds' ? 'Marked done.' : 'Skipped for today.');
-  };
+  /** Remember what happened at a place, so Segue prefers the ones you keep going back to. */
+  function learn(item: PlanItem | undefined, kind: 'done' | 'skipped') {
+    if (!item?.place) return;
+    const id = item.place.id;
+    setHistory((h) => ({ ...h, [id]: { done: (h[id]?.done ?? 0) + (kind === 'done' ? 1 : 0), skipped: (h[id]?.skipped ?? 0) + (kind === 'skipped' ? 1 : 0) } }));
+  }
+
+  const itemById = (id: string) => day.plan?.items.find((i) => i.blockId === id);
+
+  function mark(field: 'doneIds' | 'skippedIds', id: string) {
+    learn(itemById(id), field === 'doneIds' ? 'done' : 'skipped');
+    changeDay((d) => ({ ...d, [field]: [...new Set([...d[field], id])] }));
+    setSheet(null);
+    setToast({ text: field === 'doneIds' ? 'Nice, marked done.' : 'Skipped for today.', undo: true });
+    navigator.vibrate?.(8);
+  }
 
   const toggleLock = (id: string) =>
-    setDay((d) => ({ ...d, lockedIds: d.lockedIds.includes(id) ? d.lockedIds.filter((x) => x !== id) : [...d.lockedIds, id] }));
+    changeDay((d) => ({ ...d, lockedIds: d.lockedIds.includes(id) ? d.lockedIds.filter((x) => x !== id) : [...d.lockedIds, id] }));
 
-  const useFallback = (id: string, f: FallbackOption) =>
-    setDay((d) => {
+  function moveItem(id: string, hhmm: string) {
+    changeDay((d) => {
+      if (!d.plan) return d;
+      const items = d.plan.items
+        .map((i) => {
+          if (i.blockId !== id) return i;
+          const length = Date.parse(i.end) - Date.parse(i.start);
+          const start = hhmmToIso(hhmm, new Date(i.start));
+          return { ...i, start, end: new Date(Date.parse(start) + length).toISOString(), explanation: 'You moved it here' };
+        })
+        .sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+      return { ...d, plan: { ...d.plan, items }, lockedIds: [...new Set([...d.lockedIds, id])] };
+    });
+    setSheet(null);
+    setToast({ text: `Moved to ${clock(hhmmToIso(hhmm))} and pinned. Re-route to fit the rest around it.`, undo: true });
+  }
+
+  const useFallback = (id: string, f: FallbackOption) => {
+    changeDay((d) => {
       if (!d.plan) return d;
       const items = d.plan.items.map((i) =>
         i.blockId !== id
@@ -299,22 +317,86 @@ export function App() {
       );
       return { ...d, plan: { ...d.plan, items } };
     });
+    setSheet(null);
+    setToast({ text: 'Swapped.', undo: true });
+  };
+
+  function toggleSpot(item: PlanItem) {
+    const ref = item.place;
+    if (!ref) return;
+    if (favorites.some((f) => f.id === ref.id)) {
+      setFavorites((list) => list.filter((f) => f.id !== ref.id));
+      setToast({ text: `Removed ${ref.name} from My spots.` });
+      return;
+    }
+    const block = blocks.find((b) => b.id === item.blockId);
+    const known = Object.values(placeCache?.byCategory ?? {})
+      .flat()
+      .find((p) => p?.id === ref.id);
+    const place: Place = known ?? {
+      id: ref.id,
+      name: ref.name,
+      location: ref.location,
+      address: ref.address,
+      category: block?.category ?? 'none',
+      attributes: {},
+      source: 'user',
+    };
+    setFavorites((list) => [...list, place].slice(-30));
+    setToast({ text: `Saved ${ref.name}. Segue will prefer it when it fits.` });
+  }
+
+  function addBlocks(added: StoredBlock[], { plan = true } = {}) {
+    setBlocks((list) => [...list, ...added]);
+    if (!plan) return;
+    setToast({ text: added.length === 1 ? `Added ${added[0]!.title}.` : `Added ${added.length} things.` });
+  }
+
+  // Adding something re-plans with it, as a proposal you accept.
+  const pendingReplan = useRef(false);
+  useEffect(() => {
+    if (!pendingReplan.current) return;
+    pendingReplan.current = false;
+    void replan(null, { autoAccept: !day.plan });
+  }, [blocks, replan, day.plan]);
+
+  function quickAdded(added: StoredBlock[]) {
+    addBlocks(added);
+    pendingReplan.current = true;
+  }
 
   const saveBlock = (b: StoredBlock) => {
-    setBlocks((list) => (list.some((x) => x.id === b.id) ? list.map((x) => (x.id === b.id ? b : x)) : [...list, b]));
+    const isNew = !blocks.some((x) => x.id === b.id);
+    setBlocks((list) => (isNew ? [...list, b] : list.map((x) => (x.id === b.id ? b : x))));
     setSheet(null);
-    setToast('Block saved. Re-route to fit it in.');
+    setToast({ text: isNew ? `Added ${b.title}.` : 'Saved. Re-route to fit the change in.' });
+    if (isNew) pendingReplan.current = true;
   };
 
   const deleteBlock = (id: string) => {
     setBlocks((list) => list.filter((x) => x.id !== id));
     setSheet(null);
-    setToast('Block deleted.');
+    setToast({ text: 'Deleted.' });
   };
+
+  async function toggleReminders(on: boolean) {
+    if (!on) return setSettings((s) => ({ ...s, reminders: false }));
+    const granted = await askNotificationPermission();
+    setSettings((s) => ({ ...s, reminders: granted }));
+    setToast({ text: granted ? "Reminders are on. You'll get a nudge when it's time to leave." : "Notifications are blocked, so reminders stay in the app." });
+  }
+
+  async function startOver() {
+    await clearAll();
+    window.location.reload();
+  }
+
+  const allNudges = useMemo(() => nudgesFor(day, now, { mode: settings.mode, blocks, sky }), [day, now, settings.mode, blocks, sky]);
+  const shownNudges = activeNudges(allNudges, now).filter((n) => !dismissed.has(n.id));
+  useReminders(allNudges, !!settings.reminders);
 
   if (!ready) return <div className="boot" aria-busy="true" />;
 
-  const editing = sheet?.kind === 'block' ? blocks.find((b) => b.id === sheet.id) : undefined;
   const locationStatus: LocationStatus = locating
     ? { kind: 'locating' }
     : locationDenied
@@ -323,114 +405,186 @@ export function App() {
         ? { kind: 'located', at: settings.lastLocatedAt }
         : { kind: 'default' };
 
+  const calendarCard = (
+    <CalendarCard
+      calendar={cal.calendar}
+      today={today}
+      busy={cal.busy}
+      error={cal.error}
+      onConnect={() => void cal.sync('consent')}
+      onSync={() => void cal.sync()}
+      onDisconnect={cal.disconnect}
+    />
+  );
+  const calendarEvents = cal.calendar.date === day.date ? cal.calendar.events : [];
+  const openItem = sheet?.kind === 'item' ? itemById(sheet.id) : undefined;
+  const editing = sheet?.kind === 'block' ? (sheet.draft ?? blocks.find((b) => b.id === sheet.id)) : undefined;
+
+  const header = (
+    <SkyHeader
+      sky={sky}
+      now={now}
+      view={view}
+      onView={setView}
+      location={locationStatus}
+      onLocate={() => void locateNow()}
+      onSettings={() => setSheet({ kind: 'settings' })}
+      tempUnit={settings.tempUnit ?? 'C'}
+      showNav={!!settings.onboarded}
+    />
+  );
+
+  if (!settings.onboarded) {
+    return (
+      <>
+        {header}
+        <div className="app">
+          <Onboarding
+            now={now}
+            settings={settings}
+            onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+            location={locationStatus}
+            onLocate={() => void locateNow()}
+            added={blocks.filter((b) => b.date === today)}
+            onAdd={(added) => addBlocks(added, { plan: false })}
+            onRemove={(id) => setBlocks((list) => list.filter((b) => b.id !== id))}
+            calendar={GOOGLE_CLIENT_ID ? calendarCard : null}
+            calendarConnected={cal.calendar.connected}
+            onExampleDay={() => {
+              setBlocks((list) => [...list, ...SEED_BLOCKS.filter((s) => !list.some((b) => b.id === s.id))]);
+              setSettings((s) => ({ ...s, onboarded: true }));
+            }}
+            onFinish={() => setSettings((s) => ({ ...s, onboarded: true }))}
+          />
+        </div>
+        {toast && (
+          <div className="toast" role="status">
+            {toast.text}
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
-      <SkyHeader
-        sky={sky}
-        now={now}
-        view={view}
-        onView={setView}
-        location={locationStatus}
-        onLocate={() => void locateNow()}
-      />
+      {header}
       <div className="app">
         <main>
           {view === 'today' ? (
-            <Today
+            <Timeline
               day={day}
-              calendarEvents={calendar.date === day.date ? calendar.events : []}
-              mode={settings.mode}
               now={now}
+              mode={settings.mode}
+              calendarEvents={calendarEvents}
+              nudges={shownNudges}
+              adder={
+                <QuickAdd
+                  now={now}
+                  seed={seed}
+                  onAdd={quickAdded}
+                  onMore={(draft) => setSheet({ kind: 'block', id: null, draft })}
+                  showExamples={!day.plan}
+                />
+              }
+              onOpen={(item) => setSheet({ kind: 'item', id: item.blockId })}
               onDone={(id) => mark('doneIds', id)}
               onSkip={(id) => mark('skippedIds', id)}
-              onToggleLock={toggleLock}
-              onUseFallback={useFallback}
-              onReroute={() => setSheet({ kind: 'reroute' })}
-              onEditBlocks={() => setView('blocks')}
+              onReplan={() => void replan(null)}
+              onFillGap={(from) => {
+                setSeed((s) => ({ text: `after ${from}`, n: (s?.n ?? 0) + 1 }));
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onDismissNudge={(id) => setDismissed((s) => new Set(s).add(id))}
             />
           ) : (
-            <BlocksView
+            <RoutinesView
               blocks={blocks}
+              today={today}
               onEdit={(id) => setSheet({ kind: 'block', id })}
               onAdd={() => setSheet({ kind: 'block', id: null })}
               onToggle={(id) => setBlocks((list) => list.map((b) => (b.id === id ? { ...b, active: !b.active } : b)))}
-              calendar={
-                <CalendarCard
-                  calendar={calendar}
-                  today={localDate(now)}
-                  busy={calendarBusy}
-                  error={calendarError}
-                  onConnect={() => void syncCalendar('consent')}
-                  onSync={() => void syncCalendar()}
-                  onDisconnect={disconnectCalendar}
-                />
-              }
             />
-          )}
-          {view === 'today' && day.generatedAt && (
-            <p className="muted small stamp">
-              Planned at {clock(day.generatedAt)} {day.source === 'device' ? 'on your phone' : ''}
-              {undo && (
-                <>
-                  {' · '}
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => {
-                      setDay(undo);
-                      setUndo(null);
-                      setToast('Previous plan restored.');
-                    }}
-                  >
-                    Undo re-route
-                  </button>
-                </>
-              )}
-            </p>
           )}
         </main>
 
         <div className="dock">
-          <button
-            type="button"
-            className="reroute"
-            disabled={busy}
-            onClick={() => {
-              setProposal(null);
-              setError(null);
-              setSheet({ kind: 'reroute' });
-            }}
-          >
+          <button type="button" className="reroute" disabled={replanBusy} onClick={() => void replan(null)}>
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
               <path d="M4 7h9a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
               <path d="M11 12l-3 3 3 3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            {busy ? 'Rebuilding…' : 'Re-route from here'}
+            {replanBusy && !sheet ? 'Planning…' : 'Re-route from here'}
           </button>
         </div>
 
         {toast && (
           <div className="toast" role="status">
-            {toast}
+            <span>{toast.text}</span>
+            {toast.undo && undoStack.length > 0 && (
+              <button type="button" className="toast-undo" onClick={undo}>
+                Undo
+              </button>
+            )}
           </div>
         )}
 
-        {sheet?.kind === 'reroute' && (
-          <RerouteSheet
-            settings={settings}
-            busy={busy}
-            error={error}
-            proposal={proposal}
-            onRun={(c) => void run(c, { autoAccept: !day.plan })}
-            onAccept={(plan) => proposal && applyPlan(proposal, plan)}
+        {sheet?.kind === 'replan' && (
+          <ReplanSheet
+            busy={replanBusy}
+            error={replanError}
+            outcome={outcome}
+            reason={reason}
+            onReason={(r) => void replan(r)}
+            onAccept={(plan) => outcome && applyPlan(outcome, plan, reason === 'busy' ? pendingBusy.current : undefined)}
             onClose={() => {
               setSheet(null);
-              setProposal(null);
+              setOutcome(null);
+              setReason(null);
             }}
+            onOptions={() => setSheet({ kind: 'settings' })}
+          />
+        )}
+        {openItem && (
+          <ItemSheet
+            item={openItem}
+            block={blocks.find((b) => b.id === openItem.blockId)}
+            event={calendarEvents.find((e) => calendarBlockId(e.id) === openItem.blockId)}
+            mode={settings.mode}
+            locked={day.lockedIds.includes(openItem.blockId)}
+            savedSpot={!!openItem.place && favorites.some((f) => f.id === openItem.place!.id)}
+            onClose={() => setSheet(null)}
+            onDone={() => mark('doneIds', openItem.blockId)}
+            onSkip={() => mark('skippedIds', openItem.blockId)}
+            onTogglePin={() => toggleLock(openItem.blockId)}
+            onMove={(t) => moveItem(openItem.blockId, t)}
+            onUseFallback={(f) => useFallback(openItem.blockId, f)}
+            onToggleSpot={() => toggleSpot(openItem)}
+            onEdit={blocks.some((b) => b.id === openItem.blockId) ? () => setSheet({ kind: 'block', id: openItem.blockId }) : undefined}
           />
         )}
         {sheet?.kind === 'block' && (
-          <BlockForm initial={editing} onSave={saveBlock} onDelete={deleteBlock} onClose={() => setSheet(null)} />
+          <BlockForm
+            initial={editing}
+            isNew={!!sheet.draft}
+            onSave={saveBlock}
+            onDelete={deleteBlock}
+            onClose={() => setSheet(null)}
+          />
+        )}
+        {sheet?.kind === 'settings' && (
+          <SettingsSheet
+            settings={settings}
+            onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
+            location={locationStatus}
+            onLocate={() => void locateNow()}
+            favorites={favorites}
+            onRemoveFavorite={(id) => setFavorites((list) => list.filter((f) => f.id !== id))}
+            onToggleReminders={(on) => void toggleReminders(on)}
+            calendar={calendarCard}
+            onStartOver={() => void startOver()}
+            onClose={() => setSheet(null)}
+          />
         )}
       </div>
     </>
