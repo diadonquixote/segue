@@ -65,7 +65,7 @@ Every vendor sits behind `PlacesProvider` / `WeatherProvider`.
 
 ## The app (`apps/web`)
 
-- **Sky header:** an animated sky (clear, cloudy, rain, heavy rain, storm; day and night) drawn from current conditions where the user is, with the weather in words and a location control (use, update, or how to unblock it). The Segue cloud floats in every sky. The last sky is saved on the phone; past 3 hours it stops claiming any weather. `?sky=storm&night=1` previews any sky.
+- **Sky header:** a realistic animated sky drawn on a canvas (`src/lib/skyRenderer.ts`: clear, cloudy, rain, heavy rain, storm; day and night; paused when hidden or scrolled away), based on current conditions where the user is, with the weather in words and a location control (use, update, or how to unblock it). The Segue cloud floats in every sky. The last sky is saved on the phone; past 3 hours it stops claiming any weather. `?sky=storm&night=1` previews any sky.
 - **Today:** a "Next up" hero (time, place, travel, whether it's open, Mark done / Directions / Other options), then the rest of the day, then blocks that didn't fit and why.
 - **Re-route sheet:** location, end of day, energy, getting around. The result is a proposal showing *what changed* and up to three options.
 - **Blocks:** blocks are stored with wall-clock times, so they repeat daily. They can be paused, edited and deleted.

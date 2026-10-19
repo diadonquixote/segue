@@ -154,7 +154,8 @@ textarea {
 
 .logo-mark {
   flex: none;
-  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.25));
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.3);
 }
 
 .wordmark {
@@ -291,198 +292,27 @@ textarea {
   opacity: 1;
 }
 
-/* ---------- the sky itself ---------- */
+/* ---------- the sky itself (drawn on a canvas, see lib/skyRenderer.ts) ---------- */
 
 .sky {
   position: absolute;
   inset: 0;
   background: linear-gradient(to bottom, var(--sky-a) 0%, var(--sky-b) 58%, var(--sky-c) 100%);
-  transition: background 0.6s ease;
   pointer-events: none;
 }
 
-.sky-stage {
-  position: absolute;
-  inset: 0;
-  max-width: var(--max);
-  margin: 0 auto;
-}
-
-/* drifting clouds cross the whole band, each at its own pace */
-.sky-cloud {
-  position: absolute;
-  left: 0;
-  height: auto;
-  transform: translateX(var(--rest));
-  animation: drift linear infinite;
-}
-
-@keyframes drift {
-  from {
-    transform: translateX(-110%);
-  }
-  to {
-    transform: translateX(100vw);
-  }
-}
-
-/* the logo cloud: there in every weather */
-.anchor {
-  position: absolute;
-  right: 4px;
-  top: calc(env(safe-area-inset-top) + 92px);
-  width: min(38vw, 170px);
-  animation: bob 7s ease-in-out infinite;
-  filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.18));
-}
-.anchor svg {
+.sky canvas {
   display: block;
-  width: 100%;
-  height: auto;
-}
-
-@keyframes bob {
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-.sun {
-  position: absolute;
-  right: max(6vw, calc((100vw - var(--max)) / 2 + 12px));
-  top: calc(env(safe-area-inset-top) + 44px);
-  width: 120px;
-  height: 120px;
-}
-.sun svg {
-  position: relative;
   width: 100%;
   height: 100%;
 }
-.sun-rays {
-  transform-origin: 0 0;
-  animation: spin 50s linear infinite;
-}
-.sun-glow {
-  position: absolute;
-  inset: -40px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgb(255 230 150 / 0.55) 0%, rgb(255 230 150 / 0) 65%);
-  animation: glow 5s ease-in-out infinite;
-}
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes glow {
-  50% {
-    opacity: 0.6;
-    transform: scale(0.92);
-  }
-}
-
-.moon {
-  position: absolute;
-  right: max(10vw, calc((100vw - var(--max)) / 2 + 40px));
-  top: calc(env(safe-area-inset-top) + 56px);
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
-  box-shadow: inset 13px -5px 0 0 #f3efd9;
-  filter: drop-shadow(0 0 14px rgb(243 239 217 / 0.45));
-}
-
-.star {
-  position: absolute;
-  border-radius: 50%;
-  background: #fff;
-  animation: twinkle ease-in-out infinite;
-}
-
-@keyframes twinkle {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-/* rain leans with the wind; heavier weather leans harder */
-.rain {
-  position: absolute;
-  inset: -40px -10% 0;
-  transform: rotate(var(--slant));
-}
-
-.drop {
-  position: absolute;
-  top: 0;
-  border-radius: 1px;
-  background: linear-gradient(to bottom, rgb(220 230 255 / 0), rgb(220 230 255 / 0.9));
-  transform: translateY(var(--rest));
-  animation: fall linear infinite;
-}
-
-@keyframes fall {
-  from {
-    transform: translateY(-30px);
-  }
-  to {
-    transform: translateY(420px);
-  }
-}
-
-.flash {
+/* a soft shade behind the words, so bright skies never wash them out */
+.sky::after {
+  content: '';
   position: absolute;
   inset: 0;
-  background: #e8edff;
-  opacity: 0;
-  mix-blend-mode: soft-light;
-  animation: flash 7s infinite;
-}
-
-.bolt {
-  position: absolute;
-  right: min(18vw, 80px);
-  top: calc(env(safe-area-inset-top) + 178px);
-  width: 30px;
-  opacity: 0;
-  filter: drop-shadow(0 0 10px #fff6c9);
-  animation: flash 7s infinite;
-}
-
-@keyframes flash {
-  0%,
-  30%,
-  100% {
-    opacity: 0;
-  }
-  31% {
-    opacity: 1;
-  }
-  32% {
-    opacity: 0.2;
-  }
-  33.5% {
-    opacity: 0.95;
-  }
-  36% {
-    opacity: 0;
-  }
-}
-
-/* still sky for people who'd rather not have motion: the weather still reads at a glance */
-@media (prefers-reduced-motion: reduce) {
-  .sky *,
-  .sky-cloud {
-    animation: none !important;
-  }
-  .bolt {
-    opacity: 0.9;
-  }
-  .sky {
-    transition: none;
-  }
+  background: linear-gradient(100deg, rgb(8 14 40 / 0.3) 0%, rgb(8 14 40 / 0.12) 45%, rgb(8 14 40 / 0) 70%);
 }
 
 /* ---------- the hero: next up ---------- */

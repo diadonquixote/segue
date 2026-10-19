@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { clock, longDate } from '../lib/format';
+import { SKY_LOOK } from '../lib/skyRenderer';
 import { SKY_COPY, type SkyView } from '../lib/weather';
-import { LogoMark } from './Logo';
-import { Sky, SKY_LOOK } from './Sky';
+import { Sky } from './Sky';
 
 export type View = 'today' | 'blocks';
 
@@ -64,7 +64,7 @@ function LocationControl({ location, onLocate }: Pick<Props, 'location' | 'onLoc
 
 export function SkyHeader({ sky, now, view, onView, location, onLocate }: Props) {
   const copy = SKY_COPY[sky.condition];
-  const top = SKY_LOOK[sky.condition][sky.isDay ? 'day' : 'night'][0];
+  const top = SKY_LOOK[sky.condition][sky.isDay ? 'day' : 'night'].sky[0];
 
   // Tint the phone's status bar to match the sky.
   useEffect(() => {
@@ -77,7 +77,7 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate }: Props)
       <div className="sky-content">
         <div className="top">
           <div className="brand">
-            <LogoMark size={44} />
+            <img className="logo-mark" src="/icon.svg" width="40" height="40" alt="" />
             <div>
               <h1 className="wordmark">Segue</h1>
               <p className="date">{longDate(now)}</p>
