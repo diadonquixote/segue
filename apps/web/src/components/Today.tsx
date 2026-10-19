@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import type { FallbackOption, PlanItem, TravelMode } from '@segue/engine';
 import { clock, clockParts, directionsUrl, duration, minutesBetween, travelLine } from '../lib/format';
+import { calendarBlockId, isCalendarBlock, type CalendarEvent } from '../lib/calendar';
 import type { DayState } from '../lib/model';
 
 interface Props {
   day: DayState;
+  /** today's Google Calendar events, for their locations */
+  calendarEvents: CalendarEvent[];
   mode: TravelMode;
   now: Date;
   onDone: (id: string) => void;
@@ -111,8 +114,16 @@ function ItemDetail({
   );
 }
 
+/** Where an item happens, in words. */
+function placeLabel(item: PlanItem, events: Map<string, CalendarEvent>, otherwise: string): string {
+  if (item.place) return item.place.name;
+  if (isCalendarBlock(item.blockId)) return events.get(item.blockId)?.location ?? item.explanation ?? 'From Google Calendar';
+  return item.explanation ?? otherwise;
+}
+
 export function Today(props: Props) {
   const { day, now, mode } = props;
+  const events = new Map(props.calendarEvents.map((e) => [calendarBlockId(e.id), e]));
   const [open, setOpen] = useState<string | null>(null);
   const finished = new Set([...day.doneIds, ...day.skippedIds]);
   const items = (day.plan?.items ?? []).filter((i) => !finished.has(i.blockId));
@@ -161,12 +172,13 @@ export function Today(props: Props) {
             {next.title}
           </h2>
           <p className="hero-place">
-            {next.place ? next.place.name : (next.explanation ?? 'Wherever you are')}
+            {placeLabel(next, events, 'Wherever you are')}
             {next.place && travelLine(next, mode) && <span className="muted"> · {travelLine(next, mode)}</span>}
           </p>
           <p className="hero-meta">
             <span>{duration(minutesBetween(next.start, next.end))}</span>
             <Confidence item={next} />
+            {isCalendarBlock(next.blockId) && <span className="pin">Calendar</span>}
             {locked.has(next.blockId) && <span className="pin">Pinned</span>}
           </p>
           <HeroActions item={next} locked={locked.has(next.blockId)} props={props} />
@@ -197,11 +209,11 @@ export function Today(props: Props) {
                     <span className="stave-body">
                       <span className="stave-title">
                         {item.title}
-                        {item.fixed && <span className="tag">Fixed</span>}
+                        {item.fixed && <span className="tag">{isCalendarBlock(item.blockId) ? 'Calendar' : 'Fixed'}</span>}
                         {locked.has(item.blockId) && <span className="tag">Pinned</span>}
                       </span>
                       <span className="stave-sub">
-                        {item.place ? item.place.name : (item.explanation ?? 'Anywhere')}
+                        {placeLabel(item, events, 'Anywhere')}
                         {travel && ` · ${travel}`}
                       </span>
                     </span>

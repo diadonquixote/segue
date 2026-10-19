@@ -1,16 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FallbackOption, Plan } from '@segue/engine';
 import { BlockForm, BlocksView } from './components/Blocks';
+import { CalendarCard } from './components/CalendarCard';
 import { RerouteSheet, type RerouteChoices } from './components/RerouteSheet';
 import { SkyHeader, type LocationStatus, type View } from './components/SkyHeader';
 import { Today } from './components/Today';
+import { EMPTY_CALENDAR, calendarBlocks, type CalendarState } from './lib/calendar';
 import { clock } from './lib/format';
+import {
+  CalendarError,
+  calendarErrorMessage,
+  fetchTodayEvents,
+  requestToken,
+  revokeToken,
+  tokenValid,
+  type GoogleToken,
+} from './lib/googleCalendar';
 import { currentLocation, locate, locationPermission } from './lib/location';
 import { emptyDay, localDate, todayAt, utcOffsetMinutes, type DayState, type PlaceCache, type Settings, type StoredBlock } from './lib/model';
 import { rerouteDay, type RerouteOutcome } from './lib/reroute';
 import { DEFAULT_LOCATION, DEFAULT_SETTINGS, SEED_BLOCKS } from './lib/seed';
 import { getItem, setItem } from './lib/store';
 import { useSky } from './lib/useSky';
+
+/** The API takes at most this many blocks per re-route (packages/schemas). */
+const MAX_BLOCKS = 30;
+/** Older than this, a re-route mentions when the calendar was last synced. */
+const CALENDAR_STALE_MS = 3 * 60 * 60_000;
 
 type SheetState = { kind: 'reroute' } | { kind: 'block'; id: string | null } | null;
 
@@ -52,22 +68,29 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
+  const [calendar, setCalendar] = usePersisted<CalendarState>('calendar', EMPTY_CALENDAR, ready);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  // Google's access token: memory only, never saved, never sent to the Segue API.
+  const googleToken = useRef<GoogleToken | null>(null);
   const now = useNow();
   const sky = useSky(settings.lastLocation ?? DEFAULT_LOCATION, now);
 
   // Load everything from the device first, so the app opens instantly offline.
   useEffect(() => {
     void (async () => {
-      const [b, s, d, c] = await Promise.all([
+      const [b, s, d, c, cal] = await Promise.all([
         getItem<StoredBlock[]>('blocks'),
         getItem<Settings>('settings'),
         getItem<DayState>('day'),
         getItem<PlaceCache>('placeCache'),
+        getItem<CalendarState>('calendar'),
       ]);
       setBlocks(b ?? SEED_BLOCKS);
       setSettings({ ...DEFAULT_SETTINGS, ...s });
       setDay(d && d.date === localDate() ? d : emptyDay());
       setPlaceCache(c);
+      if (cal) setCalendar(cal);
       setReady(true);
       if (!b) await setItem('blocks', SEED_BLOCKS);
       // Already allowed: quietly refresh where we are, so the sky is local. Never prompts.
@@ -100,6 +123,66 @@ export function App() {
     }
   }
 
+  /**
+   * Fetch today's events. Runs from a tap: if a new Google token is needed,
+   * the sign-in popup must open before the first await, which it does here.
+   */
+  async function syncCalendar(prompt: '' | 'consent' = '') {
+    setCalendarBusy(true);
+    setCalendarError(null);
+    try {
+      if (prompt === 'consent' || !tokenValid(googleToken.current)) googleToken.current = await requestToken(prompt);
+      const events = await fetchTodayEvents(googleToken.current, new Date());
+      setCalendar({ connected: true, date: localDate(), events, syncedAt: new Date().toISOString() });
+      const count = events.length === 1 ? '1 event' : `${events.length} events`;
+      setToast(
+        !calendar.connected
+          ? `Google Calendar connected: ${count} today. Re-route to plan around them.`
+          : `Calendar synced: ${count} today.`,
+      );
+    } catch (e) {
+      if (e instanceof CalendarError && e.kind === 'expired') googleToken.current = null;
+      setCalendarError(calendarErrorMessage(e));
+    } finally {
+      setCalendarBusy(false);
+    }
+  }
+
+  function disconnectCalendar() {
+    revokeToken(googleToken.current);
+    googleToken.current = null;
+    setCalendar(EMPTY_CALENDAR);
+    setCalendarError(null);
+    setToast('Google Calendar disconnected. Re-route to take its events out of your plan.');
+  }
+
+  /** Calendar blocks for a re-route, refreshed first when there's a live token. */
+  async function calendarForReroute(start: Date, room: number): Promise<{ extra: ReturnType<typeof calendarBlocks>; warnings: string[] }> {
+    let cal = calendar;
+    if (!cal.connected) return { extra: [], warnings: [] };
+    if (tokenValid(googleToken.current)) {
+      try {
+        const events = await fetchTodayEvents(googleToken.current, start);
+        cal = { connected: true, date: localDate(start), events, syncedAt: start.toISOString() };
+        setCalendar(cal);
+      } catch {
+        // keep what was saved; the warnings below say how old it is
+      }
+    }
+    const warnings: string[] = [];
+    if (cal.date !== localDate(start)) {
+      warnings.push("Your Google Calendar hasn't synced today, so its events aren't included. Tap Sync now in Blocks.");
+      return { extra: [], warnings };
+    }
+    if (cal.syncedAt && start.getTime() - Date.parse(cal.syncedAt) > CALENDAR_STALE_MS) {
+      warnings.push(`Calendar events are from ${clock(cal.syncedAt)}. Sync in Blocks if anything changed.`);
+    }
+    if (cal.events.length > room) {
+      warnings.push(`Only ${room} of today's ${cal.events.length} calendar events fit in one plan. Pause a few blocks to fit the rest.`);
+    }
+    return { extra: calendarBlocks(cal.events, room), warnings };
+  }
+
   // A new day starts with a clean slate.
   useEffect(() => {
     if (ready && day.date !== localDate(now)) setDay(emptyDay(localDate(now)));
@@ -128,10 +211,13 @@ export function App() {
           lastLocatedAt: located ? start.toISOString() : settings.lastLocatedAt,
         };
         setSettings(nextSettings);
+        const room = MAX_BLOCKS - blocks.filter((b) => b.active).length;
+        const fromCalendar = await calendarForReroute(start, room);
         const outcome = await rerouteDay({
           blocks,
           day,
           placeCache,
+          extraBlocks: fromCalendar.extra,
           context: {
             now: start.toISOString(),
             endOfDay,
@@ -148,6 +234,7 @@ export function App() {
               : "Couldn't get your location, so this assumes Metro Manila. Allow location access for better places.",
           );
         }
+        outcome.warnings.push(...fromCalendar.warnings);
         if (outcome.placeCache) setPlaceCache(outcome.placeCache);
         if (opts.autoAccept) {
           applyPlan(outcome, outcome.plan);
@@ -159,7 +246,7 @@ export function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [blocks, day, placeCache, settings],
+    [blocks, day, placeCache, settings, calendar],
   );
 
   function applyPlan(outcome: RerouteOutcome, plan: Plan) {
@@ -251,6 +338,7 @@ export function App() {
           {view === 'today' ? (
             <Today
               day={day}
+              calendarEvents={calendar.date === day.date ? calendar.events : []}
               mode={settings.mode}
               now={now}
               onDone={(id) => mark('doneIds', id)}
@@ -266,6 +354,17 @@ export function App() {
               onEdit={(id) => setSheet({ kind: 'block', id })}
               onAdd={() => setSheet({ kind: 'block', id: null })}
               onToggle={(id) => setBlocks((list) => list.map((b) => (b.id === id ? { ...b, active: !b.active } : b)))}
+              calendar={
+                <CalendarCard
+                  calendar={calendar}
+                  today={localDate(now)}
+                  busy={calendarBusy}
+                  error={calendarError}
+                  onConnect={() => void syncCalendar('consent')}
+                  onSync={() => void syncCalendar()}
+                  onDisconnect={disconnectCalendar}
+                />
+              }
             />
           )}
           {view === 'today' && day.generatedAt && (

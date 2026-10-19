@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Energy, PlaceCategory, Priority, Requirement, TimePref } from '@segue/engine';
 import { duration } from '../lib/format';
 import { CATEGORY_LABEL, PRIORITY_LABEL, REQUIREMENT_LABEL, newId, type StoredBlock } from '../lib/model';
@@ -9,8 +9,11 @@ export function BlocksView({
   onEdit,
   onAdd,
   onToggle,
+  calendar,
 }: {
   blocks: StoredBlock[];
+  /** the Google Calendar card */
+  calendar?: ReactNode;
   onEdit: (id: string) => void;
   onAdd: () => void;
   onToggle: (id: string) => void;
@@ -21,6 +24,7 @@ export function BlocksView({
       <p className="muted intro">
         Blocks are what you want from a day, not when or where. Segue finds the time and place each time you re-route.
       </p>
+      {calendar}
       {groups.map((p) => {
         const list = blocks.filter((b) => b.priority === p);
         if (!list.length) return null;

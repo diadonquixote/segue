@@ -5,7 +5,7 @@
  *      cached from the last successful call. Hours can't be re-verified, but
  *      the user still gets a plan in under a second.
  */
-import { haversineMeters, reroute, type Context, type Place, type Plan, type RerouteResult } from '@segue/engine';
+import { haversineMeters, reroute, type Block, type Context, type Place, type Plan, type RerouteResult } from '@segue/engine';
 import { toEngineBlock, type DayState, type PlaceCache, type StoredBlock } from './model';
 
 export const API_URL: string = (import.meta.env?.VITE_API_URL as string | undefined) ?? 'http://localhost:8787';
@@ -47,10 +47,12 @@ export async function rerouteDay(opts: {
   day: DayState;
   placeCache?: PlaceCache;
   forceOffline?: boolean;
+  /** already-dated blocks from elsewhere, e.g. Google Calendar events */
+  extraBlocks?: Block[];
 }): Promise<RerouteOutcome> {
   const now = new Date(opts.context.now);
   const active = opts.blocks.filter((b) => b.active);
-  const engineBlocks = active.map((b) => toEngineBlock(b, now));
+  const engineBlocks = [...active.map((b) => toEngineBlock(b, now)), ...(opts.extraBlocks ?? [])];
   const shared = {
     blocks: engineBlocks,
     context: opts.context,

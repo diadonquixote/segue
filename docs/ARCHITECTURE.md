@@ -66,6 +66,7 @@ Every vendor sits behind `PlacesProvider` / `WeatherProvider`.
 ## The app (`apps/web`)
 
 - **Sky header:** a realistic animated sky drawn on a canvas (`src/lib/skyRenderer.ts`: clear, cloudy, rain, heavy rain, storm; day and night; paused when hidden or scrolled away), based on current conditions where the user is, with the weather in words and a location control (use, update, or how to unblock it). The Segue cloud floats in every sky. The last sky is saved on the phone; past 3 hours it stops claiming any weather. `?sky=storm&night=1` previews any sky.
+- **Google Calendar:** an optional card in Blocks. Sign-in uses Google Identity Services in the browser (read-only scope `calendar.events.readonly`); the access token lives in memory only. Today's timed, busy events from the primary calendar are saved on the phone and become fixed `must` blocks at re-route time (`src/lib/calendar.ts`), so the engine plans around them and never moves them. Free, declined, cancelled and all-day events are left out. Without a live token, a re-route uses the events saved at the last sync and says how old they are. Segue never writes to the calendar.
 - **Today:** a "Next up" hero (time, place, travel, whether it's open, Mark done / Directions / Other options), then the rest of the day, then blocks that didn't fit and why.
 - **Re-route sheet:** location, end of day, energy, getting around. The result is a proposal showing *what changed* and up to three options.
 - **Blocks:** blocks are stored with wall-clock times, so they repeat daily. They can be paused, edited and deleted.
@@ -99,9 +100,9 @@ Requests are validated with the zod schemas in `packages/schemas`, and 400 respo
 
 1. **MVP (this repo):** blocks, Today view, manual re-route, places + greedy engine, installable PWA. *Gate: used for 10 real days.*
 2. **Offline + context:** on-device re-route ✅, weather ✅, fallbacks ✅, explanations ✅, sync across devices. *Gate: works with no signal.*
-3. **Smart triggers:** City Kits (go-to spots per city), prompts when you move more than about 2 km, a place closes, rain starts or a block overruns; Google Calendar busy times. *Gate: re-route p95 under 1.5 s.*
+3. **Smart triggers:** City Kits (go-to spots per city), prompts when you move more than about 2 km, a place closes, rain starts or a block overruns; Google Calendar busy times ✅ (read-only, primary calendar). *Gate: re-route p95 under 1.5 s.*
 4. **Learn + scale:** learn weights from accepts, swaps and skips; shared plans; native wrapper (Capacitor); split the engine and gateway into their own services.
 
 ## Privacy
 
-Location is sent only when re-routing or checking the sky (rounded to about 1 km for the sky), and the server doesn't store it. Plans and history stay on the device. API keys stay on the server.
+Calendar events are read from Google in the browser; their titles, times and locations go to the API only as part of a re-route (like any other block), and the Google token never leaves the phone. Location is sent only when re-routing or checking the sky (rounded to about 1 km for the sky), and the server doesn't store it. Plans and history stay on the device. API keys stay on the server.

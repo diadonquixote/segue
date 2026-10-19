@@ -48,6 +48,22 @@ PLACES_PROVIDER=google GOOGLE_PLACES_API_KEY=... pnpm dev:api
 
 Google calls are capped per day (`GOOGLE_DAILY_BUDGET`, default 500) and fall back to OpenStreetMap, then mock data.
 
+**Connecting Google Calendar** (meetings and classes become fixed blocks the day is planned around):
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create or pick a project and enable the **Google Calendar API**.
+2. Under **Google Auth Platform → Branding/Audience**, set up the consent screen. While the app is in *Testing*, add your own Google account as a test user.
+3. Under **Data Access**, add the scope `https://www.googleapis.com/auth/calendar.events.readonly`.
+4. Under **Clients**, create an OAuth client of type **Web application**. Add `http://localhost:5173` (and your production URL) to **Authorized JavaScript origins**. No redirect URI is needed.
+5. Put the client ID in `apps/web/.env`:
+
+   ```bash
+   cp apps/web/.env.example apps/web/.env   # then set VITE_GOOGLE_CLIENT_ID=…apps.googleusercontent.com
+   ```
+
+6. Restart `pnpm dev:web`, open **Blocks**, and tap **Connect Google Calendar**.
+
+Segue only reads your primary calendar, and only today's timed events; it never changes your calendar. Sign-in happens in the browser and the short-lived token stays in memory, so the API never sees it. To let other people connect, Google has to verify the app for this scope (publish the consent screen and submit it for review).
+
 ## Scripts
 
 ```bash
@@ -67,4 +83,4 @@ pnpm --filter @segue/engine bench   # engine speed on a busy day
 
 ## Status
 
-This is the Phase 1 MVP from the architecture doc, with parts of Phase 2 (offline re-route, weather, fallbacks, explanations). Next up: accounts and sync (Postgres + PostGIS), City Kits, location and closure triggers, and Google Calendar busy times. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+This is the Phase 1 MVP from the architecture doc, with parts of Phase 2 (offline re-route, weather, fallbacks, explanations). Google Calendar events can be brought in as fixed blocks. Next up: accounts and sync (Postgres + PostGIS), City Kits, and location and closure triggers. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
