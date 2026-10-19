@@ -4,7 +4,7 @@ const MORNING = new Date('2026-10-20T09:00:00+08:00'); // a Tuesday
 
 async function onboard(page: Page, things: string[]) {
   await page.clock.setFixedTime(MORNING);
-  await page.goto('/?sky=clear');
+  await page.goto('/app?sky=clear');
   await page.getByRole('button', { name: /^Next/ }).click();
   await page.getByRole('radio', { name: /Walking/ }).click();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
@@ -18,7 +18,7 @@ async function onboard(page: Page, things: string[]) {
 
 test('first run: say what is on today and get a plan', async ({ page }) => {
   await page.clock.setFixedTime(MORNING);
-  await page.goto('/?sky=clear');
+  await page.goto('/app?sky=clear');
   await expect(page.getByRole('heading', { name: 'Plan your day around real life' })).toBeVisible();
   await page.getByRole('button', { name: /^Next/ }).click();
   await page.getByRole('button', { name: 'Next', exact: true }).click();

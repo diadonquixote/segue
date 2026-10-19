@@ -32,7 +32,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-Open http://localhost:5173. The app seeds a starter day (deep work, lunch, gym, groceries, a call) and plans it from your location.
+Open http://localhost:5173 for the landing page, or http://localhost:5173/app for the app. A first visit to the app walks through a three-step setup; **Try an example day** fills in a starter day (deep work, lunch, gym, groceries, a call).
 
 **No network or rate-limited?** Run the API with made-up places:
 
@@ -60,7 +60,7 @@ Google calls are capped per day (`GOOGLE_DAILY_BUDGET`, default 500) and fall ba
    cp apps/web/.env.example apps/web/.env   # then set VITE_GOOGLE_CLIENT_ID=…apps.googleusercontent.com
    ```
 
-6. Restart `pnpm dev:web`, open **Settings** (the gear), and tap **Connect Google Calendar**.
+6. Restart `pnpm dev:web`, open the **Plan** tab (or Settings), and tap **Connect** to reach the Google Calendar screen.
 
 Segue only reads today's timed events, and never changes your calendar. Sign-in happens in the browser and the short-lived token stays in memory, so the API never sees it. To let other people connect, Google has to verify the app for this scope (publish the consent screen and submit it for review).
 

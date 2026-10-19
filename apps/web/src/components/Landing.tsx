@@ -159,7 +159,6 @@ function TryIt() {
 
 export function Landing() {
   const [sky, setSky] = useState<SkyCondition>('clear');
-  const isDay = new Date().getHours() >= 6 && new Date().getHours() < 18;
 
   useEffect(() => {
     document.title = 'Segue · A day planner that re-routes when plans change';
@@ -168,7 +167,8 @@ export function Landing() {
   return (
     <div className="landing">
       <header className="lp-hero">
-        <Sky condition={sky} isDay={isDay} />
+        {/* Always the daytime sky here, so the chips match what you see. */}
+        <Sky condition={sky} isDay />
         <nav className="lp-nav" aria-label="Segue">
           <a href="/" className="lp-logo">
             <img src="/wordmark-light.svg" alt="Segue" />
