@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FallbackOption, Place, Plan, PlanItem } from '@segue/engine';
 import { BlockForm, RoutinesView } from './components/Blocks';
 import { CalendarCard } from './components/CalendarCard';
+import { CalendarPage } from './components/CalendarPage';
 import { ItemSheet } from './components/ItemSheet';
 import { Onboarding } from './components/Onboarding';
+import { PlanPage } from './components/PlanPage';
 import { QuickAdd } from './components/QuickAdd';
 import { ReplanSheet } from './components/ReplanSheet';
 import { SettingsSheet } from './components/SettingsSheet';
@@ -31,6 +33,7 @@ import {
 import { activeNudges, nudgesFor } from './lib/nudges';
 import { BUSY_BLOCK_ID, adjustFor, type ReplanReason } from './lib/replan';
 import { rerouteDay, type RerouteOutcome } from './lib/reroute';
+import { navigate, useRoute } from './lib/router';
 import { DEFAULT_LOCATION, DEFAULT_SETTINGS, SEED_BLOCKS } from './lib/seed';
 import { clearAll, getItem } from './lib/store';
 import { useCalendar } from './lib/useCalendar';
@@ -64,7 +67,12 @@ export function App() {
   const [favorites, setFavorites] = usePersisted<FavoritePlace[]>('favorites', [], ready);
   const [history, setHistory] = usePersisted<PlaceHistory>('placeHistory', {}, ready);
   const [undoStack, setUndoStack] = useState<DayState[]>([]);
-  const [view, setView] = useState<View>('today');
+  const route = useRoute();
+  // Where Back on the calendar screen returns to.
+  const lastRoute = useRef<View>('today');
+  useEffect(() => {
+    if (route !== 'calendar') lastRoute.current = route;
+  }, [route]);
   const [sheet, setSheet] = useState<SheetState>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [locating, setLocating] = useState(false);
@@ -175,7 +183,7 @@ export function App() {
     setOutcome(null);
     setReason(null);
     setSheet(null);
-    setView('today');
+    if (route !== 'today') navigate('today');
     if (had) setToast({ text: 'Plan updated.', undo: true });
     navigator.vibrate?.(12);
   }
@@ -203,7 +211,8 @@ export function App() {
         if (located) {
           setSettings((s) => ({ ...s, lastLocation: located, lastLocationLabel: `near you at ${clock(start.toISOString())}`, lastLocatedAt: start.toISOString() }));
         }
-        const planned = blocks.filter((b) => plannedToday(b, localDate(start)) && b.id !== BUSY_BLOCK_ID);
+        const excluded = new Set(day.excludedIds ?? []);
+        const planned = blocks.filter((b) => plannedToday(b, localDate(start)) && b.id !== BUSY_BLOCK_ID && !excluded.has(b.id));
         const room = MAX_BLOCKS - planned.length - adj.extraBlocks.length;
         const fromCalendar = await cal.forReroute(adj.start, room);
         const o = await rerouteDay({
@@ -212,7 +221,7 @@ export function App() {
           placeCache,
           favorites,
           affinity: affinityFrom(history, favorites),
-          extraBlocks: [...adj.extraBlocks, ...fromCalendar.extra],
+          extraBlocks: [...adj.extraBlocks, ...fromCalendar.extra.filter((b) => !excluded.has(b.id))],
           context: {
             now: adj.start.toISOString(),
             endOfDay,
@@ -263,6 +272,13 @@ export function App() {
     autoPlanned.current = true;
     void replan(null, { autoAccept: true });
   }, [ready, settings.onboarded, day.plan, blocks, cal.calendar, today, replan]);
+
+  /** Leave a routine or calendar event out of today's plan, or bring it back. */
+  const toggleExclude = (id: string) =>
+    setDay((d) => {
+      const list = d.excludedIds ?? [];
+      return { ...d, excludedIds: list.includes(id) ? list.filter((x) => x !== id) : [...list, id] };
+    });
 
   /** Remember what happened at a place, so Segue prefers the ones you keep going back to. */
   function learn(item: PlanItem | undefined, kind: 'done' | 'skipped') {
@@ -417,6 +433,7 @@ export function App() {
     />
   );
   const calendarEvents = cal.calendar.date === day.date ? cal.calendar.events : [];
+  const excludedSet = new Set(day.excludedIds ?? []);
   const openItem = sheet?.kind === 'item' ? itemById(sheet.id) : undefined;
   const editing = sheet?.kind === 'block' ? (sheet.draft ?? blocks.find((b) => b.id === sheet.id)) : undefined;
 
@@ -424,8 +441,8 @@ export function App() {
     <SkyHeader
       sky={sky}
       now={now}
-      view={view}
-      onView={setView}
+      view={route === 'calendar' ? lastRoute.current : route}
+      onView={(r) => navigate(r)}
       location={locationStatus}
       onLocate={() => void locateNow()}
       onSettings={() => setSheet({ kind: 'settings' })}
@@ -471,7 +488,7 @@ export function App() {
       {header}
       <div className="app">
         <main>
-          {view === 'today' ? (
+          {route === 'today' && (
             <Timeline
               day={day}
               now={now}
@@ -497,7 +514,8 @@ export function App() {
               }}
               onDismissNudge={(id) => setDismissed((s) => new Set(s).add(id))}
             />
-          ) : (
+          )}
+          {route === 'routines' && (
             <RoutinesView
               blocks={blocks}
               today={today}
@@ -506,8 +524,46 @@ export function App() {
               onToggle={(id) => setBlocks((list) => list.map((b) => (b.id === id ? { ...b, active: !b.active } : b)))}
             />
           )}
+          {route === 'plan' && (
+            <PlanPage
+              now={now}
+              today={today}
+              day={day}
+              blocks={blocks}
+              settings={settings}
+              onSettings={(patch) => setSettings((x) => ({ ...x, ...patch }))}
+              calendarConnected={cal.calendar.connected}
+              calendarEvents={calendarEvents}
+              excluded={excludedSet}
+              onToggleExclude={toggleExclude}
+              adder={<QuickAdd now={now} onAdd={(added) => addBlocks(added)} onMore={(draft) => setSheet({ kind: 'block', id: null, draft })} />}
+              onRemoveBlock={(id) => setBlocks((list) => list.filter((b) => b.id !== id))}
+              onEditBlock={(id) => setSheet({ kind: 'block', id })}
+              onOpenCalendar={() => navigate('calendar')}
+              onPlan={() => void replan(null, { autoAccept: !day.plan })}
+              busy={replanBusy}
+            />
+          )}
+          {route === 'calendar' && (
+            <CalendarPage
+              calendar={cal.calendar}
+              today={today}
+              busy={cal.busy}
+              error={cal.error}
+              excluded={excludedSet}
+              onConnect={() => void cal.sync('consent')}
+              onSync={() => void cal.sync()}
+              onDisconnect={cal.disconnect}
+              onToggleExclude={toggleExclude}
+              onBack={() => navigate(lastRoute.current)}
+              onPlan={() => {
+                navigate('plan');
+              }}
+            />
+          )}
         </main>
 
+        {(route === 'today' || route === 'routines') && (
         <div className="dock">
           <button type="button" className="reroute" disabled={replanBusy} onClick={() => void replan(null)}>
             <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -517,6 +573,7 @@ export function App() {
             {replanBusy && !sheet ? 'Planning…' : 'Re-route from here'}
           </button>
         </div>
+        )}
 
         {toast && (
           <div className="toast" role="status">
@@ -581,7 +638,28 @@ export function App() {
             favorites={favorites}
             onRemoveFavorite={(id) => setFavorites((list) => list.filter((f) => f.id !== id))}
             onToggleReminders={(on) => void toggleReminders(on)}
-            calendar={calendarCard}
+            calendar={
+              <section className="settings-group">
+                <h3 className="section-title">Google Calendar</h3>
+                <p className="muted small">
+                  {!GOOGLE_CLIENT_ID
+                    ? 'Not set up on this version of Segue.'
+                    : cal.calendar.connected
+                      ? `Connected${cal.calendar.syncedAt ? `, synced ${clock(cal.calendar.syncedAt)}` : ''}.`
+                      : 'Bring in your meetings and classes so Segue plans around them.'}
+                </p>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => {
+                    setSheet(null);
+                    navigate('calendar');
+                  }}
+                >
+                  {cal.calendar.connected ? 'Manage Google Calendar' : 'Connect Google Calendar'}
+                </button>
+              </section>
+            }
             onStartOver={() => void startOver()}
             onClose={() => setSheet(null)}
           />

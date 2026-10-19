@@ -63,6 +63,8 @@ export interface DayState {
   doneIds: string[];
   skippedIds: string[];
   lockedIds: string[];
+  /** routines and calendar events left out of today's plan (they come back tomorrow) */
+  excludedIds?: string[];
   generatedAt?: string;
   source?: 'server' | 'device';
   warnings: string[];

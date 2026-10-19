@@ -4,7 +4,7 @@ import { SKY_LOOK } from '../lib/skyRenderer';
 import { SKY_COPY, type SkyView } from '../lib/weather';
 import { Sky } from './Sky';
 
-export type View = 'today' | 'routines';
+export type View = 'today' | 'plan' | 'routines';
 
 export type LocationStatus =
   | { kind: 'located'; at?: string }
@@ -77,6 +77,9 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
               <nav className="tabs" aria-label="Sections">
                 <button type="button" aria-current={view === 'today' ? 'page' : undefined} onClick={() => onView('today')}>
                   Today
+                </button>
+                <button type="button" aria-current={view === 'plan' ? 'page' : undefined} onClick={() => onView('plan')}>
+                  Plan
                 </button>
                 <button type="button" aria-current={view === 'routines' ? 'page' : undefined} onClick={() => onView('routines')}>
                   Routines

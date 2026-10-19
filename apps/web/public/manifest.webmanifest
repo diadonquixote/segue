@@ -1,8 +1,8 @@
 {
   "name": "Segue",
   "short_name": "Segue",
-  "description": "Plan your day as flexible blocks. When plans change, re-route from wherever you are.",
-  "start_url": "/",
+  "description": "Say what you want from your day. Segue finds the time and place, and re-routes when plans change.",
+  "start_url": "/app",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

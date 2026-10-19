@@ -1609,3 +1609,273 @@ details.more[open] {
     transition: none;
   }
 }
+
+/* ---------- full pages: Plan and Google Calendar ---------- */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 -4px -6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--slate);
+  font-weight: 600;
+  cursor: pointer;
+}
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--ink);
+}
+.page-head p {
+  margin: 2px 0 0;
+}
+.page-title {
+  margin: 0;
+  font-size: var(--step-2);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.panel.subtle {
+  background: transparent;
+}
+.panel p {
+  margin: 0;
+}
+.panel .quick-add {
+  margin: 0;
+}
+.panel-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.panel-title {
+  margin: 0;
+  font-size: var(--step-0);
+  font-weight: 700;
+}
+.big {
+  min-height: 56px;
+  font-size: var(--step-0);
+}
+.center {
+  text-align: center;
+}
+.warn-text {
+  color: var(--warn);
+}
+.danger-text {
+  color: var(--danger);
+  align-self: flex-start;
+}
+
+.promises {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.promises li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px 14px 46px;
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  position: relative;
+}
+.promises li::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 17px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--patina);
+}
+.promises li::after {
+  content: '';
+  position: absolute;
+  left: 21px;
+  top: 22px;
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg);
+}
+.plain-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--slate);
+  font-size: var(--step--1);
+}
+.plain-list li + li {
+  margin-top: 6px;
+}
+
+.event-list,
+.pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.event-list li,
+.pick-list li {
+  display: grid;
+  grid-template-columns: 4.8rem 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--stave);
+}
+.event-list li:first-child,
+.pick-list li:first-child {
+  border-top: 0;
+}
+.event-list li.off .event-body strong,
+.pick-list li.off .pick-body {
+  opacity: 0.5;
+}
+.event-list li.off .event-body strong,
+.pick-list li.off .pick-body strong {
+  text-decoration: line-through;
+}
+.event-time,
+.pick-time {
+  display: flex;
+  flex-direction: column;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.event-body,
+.pick-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pick-body.as-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* the day on an hour grid */
+.glance {
+  position: relative;
+  margin-left: 3.2rem;
+}
+.glance-hour {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--stave);
+}
+.glance-hour span {
+  position: absolute;
+  left: -3.2rem;
+  top: -0.65em;
+  width: 2.8rem;
+  text-align: right;
+  font-size: 0.72rem;
+  color: var(--slate);
+  font-variant-numeric: tabular-nums;
+}
+.glance-item {
+  position: absolute;
+  left: 6px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 4px 10px;
+  border-radius: 10px;
+  border-left: 4px solid var(--brass);
+  background: var(--brass-soft);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+.glance-item.cal {
+  border-left-color: var(--patina);
+  background: color-mix(in srgb, var(--patina) 16%, var(--surface));
+}
+.glance-item.fixed {
+  border-left-color: var(--ink);
+  background: var(--fog);
+}
+.glance-item span {
+  color: var(--slate);
+}
+.glance-travel {
+  position: absolute;
+  left: 14px;
+  width: 0;
+  border-left: 2px dotted var(--slate);
+}
+.glance-now {
+  position: absolute;
+  left: -6px;
+  right: 0;
+  border-top: 2px solid var(--danger);
+}
+.glance-now::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.plan-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 4px calc(-1 * var(--gutter)) 0;
+  padding: 14px var(--gutter) calc(env(safe-area-inset-bottom) + 14px);
+  background: linear-gradient(to top, var(--fog) 75%, transparent);
+}
+.plan-sum {
+  flex: 1;
+  margin: 0;
+  font-size: var(--step--1);
+  color: var(--slate);
+}
+.plan-page {
+  padding-bottom: 0;
+}
+.app:has(.plan-page),
+.app:has(.calendar-page) {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+}
