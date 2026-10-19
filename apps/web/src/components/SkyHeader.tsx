@@ -77,11 +77,10 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate }: Props)
       <div className="sky-content">
         <div className="top">
           <div className="brand">
-            <img className="logo-mark" src="/icon.svg" width="40" height="40" alt="" />
-            <div>
-              <h1 className="wordmark">Segue</h1>
-              <p className="date">{longDate(now)}</p>
-            </div>
+            <h1 className="wordmark">
+              <img src="/wordmark-light.svg" alt="Segue" />
+            </h1>
+            <p className="date">{longDate(now)}</p>
           </div>
           <nav className="tabs" aria-label="Sections">
             <button type="button" aria-current={view === 'today' ? 'page' : undefined} onClick={() => onView('today')}>

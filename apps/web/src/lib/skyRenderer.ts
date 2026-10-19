@@ -97,15 +97,31 @@ export const SKY_LOOK: Record<SkyCondition, Look> = {
   },
 };
 
-/** Same layout as public/icon.svg (512 grid): the logo cloud, rendered for real. */
-const LOGO_CLOUD = {
-  circles: [
-    [178, 206, 58],
-    [262, 160, 88],
-    [350, 200, 62],
-  ] as [number, number, number][],
-  base: { x: 120, y: 200, w: 292, h: 64 },
-  box: { x: 108, y: 64, w: 316, h: 212 },
+/** Same layout as public/icon.svg (512 grid): the logo's two clouds, rendered for real. */
+interface CloudLayer {
+  circles: [number, number, number][];
+  base: { x: number; y: number; w: number; h: number };
+}
+const LOGO_CLOUD: { back: CloudLayer; front: CloudLayer; box: { x: number; y: number; w: number; h: number } } = {
+  back: {
+    circles: [
+      [208, 150, 58],
+      [272, 104, 56],
+      [320, 150, 46],
+    ],
+    base: { x: 150, y: 150, w: 214, h: 64 },
+  },
+  front: {
+    circles: [
+      [172, 224, 34],
+      [222, 196, 50],
+      [286, 168, 62],
+      [346, 206, 44],
+      [396, 226, 26],
+    ],
+    base: { x: 138, y: 218, w: 280, h: 44 },
+  },
+  box: { x: 132, y: 44, w: 296, h: 222 },
 };
 
 const MAX_WIDTH = 560; // matches --max
@@ -187,20 +203,22 @@ function cumulusPuffs(w: number, h: number): { puffs: Puff[]; baseY: number } {
 /** Room around the logo cloud for the puffs' soft edges. */
 const PAD = 46;
 
-function logoPuffs(scale: number): { puffs: Puff[]; baseY: number; w: number; h: number } {
-  const { circles, base, box } = LOGO_CLOUD;
+function logoPuffs(layer: CloudLayer, count: number, scale: number): { puffs: Puff[]; baseY: number; w: number; h: number } {
+  const { circles, base } = layer;
+  const { box } = LOGO_CLOUD;
   const inside = (x: number, y: number) =>
     circles.some(([cx, cy, r]) => (x - cx) ** 2 + (y - cy) ** 2 <= r * r) ||
     (x >= base.x && x <= base.x + base.w && y >= base.y && y <= base.y + base.h);
   const puffs: Puff[] = [];
   let guard = 0;
-  while (puffs.length < 90 && guard++ < 5000) {
+  while (puffs.length < count && guard++ < 5000) {
     const x = rand(box.x, box.x + box.w);
     const y = rand(box.y, box.y + box.h);
     if (!inside(x, y)) continue;
-    const r = rand(30, 46);
+    const r = rand(26, 42);
     puffs.push({ x: (x - box.x + PAD) * scale, y: (y - box.y + PAD) * scale, r: r * scale });
   }
+  // Both layers share one frame, so they line up exactly as in the icon.
   return { puffs, baseY: (base.y + base.h - box.y + PAD) * scale, w: (box.w + PAD * 2) * scale, h: (box.h + PAD * 2) * scale };
 }
 
@@ -279,7 +297,7 @@ export function createSkyRenderer(canvas: HTMLCanvasElement, initial: SkyScene, 
   let H = 0;
   let dpr = 1;
   let clouds: Cloud[] = [];
-  let anchor: { sprite: HTMLCanvasElement; w: number; h: number } | null = null;
+  let anchor: { back: HTMLCanvasElement; front: HTMLCanvasElement; w: number; h: number } | null = null;
   let anchorPad = 0;
   let drops: Drop[] = [];
   let stars: { x: number; y: number; r: number; phase: number; speed: number }[] = [];
@@ -331,9 +349,18 @@ export function createSkyRenderer(canvas: HTMLCanvasElement, initial: SkyScene, 
     }
 
     const aw = Math.min(W * 0.4, 180);
-    const lp = logoPuffs(aw / LOGO_CLOUD.box.w);
-    anchorPad = PAD * (aw / LOGO_CLOUD.box.w);
-    anchor = { sprite: paintCloud(lp.w, lp.h, lp.puffs, lp.baseY, tn, dpr), w: lp.w, h: lp.h };
+    const k = aw / LOGO_CLOUD.box.w;
+    const back = logoPuffs(LOGO_CLOUD.back, 55, k);
+    const front = logoPuffs(LOGO_CLOUD.front, 80, k);
+    // The back cloud sits further off, so it takes on the colour of the sky.
+    const far: Tone = { ...tn, lit: mix(tn.lit, skyMid, 0.35), shade: mix(tn.shade, skyMid, 0.35) };
+    anchorPad = PAD * k;
+    anchor = {
+      back: paintCloud(back.w, back.h, back.puffs, back.baseY, far, dpr),
+      front: paintCloud(front.w, front.h, front.puffs, front.baseY, tn, dpr),
+      w: front.w,
+      h: front.h,
+    };
 
     const area = (W * H) / 100_000;
     drops = Array.from({ length: Math.round(l.rain * area) }, () => ({ x: rand(-0.2 * W, 1.2 * W), y: rand(-H, H), z: rand(0.25, 1) }));
@@ -546,8 +573,10 @@ export function createSkyRenderer(canvas: HTMLCanvasElement, initial: SkyScene, 
 
     if (anchor) {
       const x = columnRight() - anchor.w + anchorPad + 6;
-      const y = 88 - anchorPad + Math.sin(t * 0.9) * 3;
-      g.drawImage(anchor.sprite, x, y, anchor.w, anchor.h);
+      const y = 80 - anchorPad;
+      // A touch of parallax: the far cloud drifts less than the near one.
+      g.drawImage(anchor.back, x, y + Math.sin(t * 0.7) * 1.5, anchor.w, anchor.h);
+      g.drawImage(anchor.front, x, y + Math.sin(t * 0.9) * 3, anchor.w, anchor.h);
     }
 
     drawClouds(2, dt);
