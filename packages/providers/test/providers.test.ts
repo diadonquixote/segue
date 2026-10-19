@@ -8,6 +8,7 @@ import {
   MemoryStore,
   MockPlacesProvider,
   OpenMeteoProvider,
+  skyFromWmo,
   OsmPlacesProvider,
   buildOverpassQuery,
   geohash,
@@ -199,5 +200,37 @@ describe('Open-Meteo', () => {
       { time: '2026-10-19T07:00:00Z', precipitationProbability: 80, temperatureC: 29.5 },
     ]);
     expect(Number.isNaN(Date.parse(hours[0]!.time))).toBe(false);
+  });
+
+  it('reads current conditions into one of the five skies', async () => {
+    const w = new OpenMeteoProvider(
+      jsonFetch({ current: { time: '2026-10-19T11:00', weather_code: 63, precipitation: 1.2, temperature_2m: 26.4, is_day: 0 } }),
+    );
+    expect(await w.current(MANILA)).toEqual({ condition: 'rain', isDay: false, temperatureC: 26.4, observedAt: '2026-10-19T11:00:00Z' });
+  });
+
+  it('rejects a response without a weather code', async () => {
+    const w = new OpenMeteoProvider(jsonFetch({ current: { time: '2026-10-19T11:00' } }));
+    await expect(w.current(MANILA)).rejects.toThrow(/missing/);
+  });
+});
+
+describe('skyFromWmo', () => {
+  it.each([
+    [0, 0, 'clear'],
+    [2, 0, 'clear'],
+    [3, 0, 'cloudy'],
+    [45, 0, 'cloudy'],
+    [73, 0, 'cloudy'],
+    [51, 0.2, 'rain'],
+    [61, 1, 'rain'],
+    [63, 5, 'heavy-rain'],
+    [65, 0, 'heavy-rain'],
+    [80, 0.5, 'rain'],
+    [82, 0, 'heavy-rain'],
+    [95, 0, 'storm'],
+    [99, 12, 'storm'],
+  ] as const)('code %i with %f mm is %s', (code, mm, sky) => {
+    expect(skyFromWmo(code, mm)).toBe(sky);
   });
 });

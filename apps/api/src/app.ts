@@ -53,6 +53,16 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   }
 }
 
+/** lat/lng from the query string; a missing value must not read as 0. */
+function latLngQuery(url: URL): { lat: number; lng: number } {
+  const [lat, lng] = ['lat', 'lng'].map((k) => {
+    const raw = url.searchParams.get(k);
+    return raw === null || raw.trim() === '' ? NaN : Number(raw);
+  });
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new HttpError(400, 'lat and lng are required');
+  return { lat: lat!, lng: lng! };
+}
+
 function clientKey(req: IncomingMessage): string {
   const fwd = req.headers['x-forwarded-for'];
   const first = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(',')[0]?.trim();
@@ -92,10 +102,18 @@ export function createApp(deps: AppDeps) {
       return { status: 200, body: { places } };
     }
 
+    if (method === 'GET' && url.pathname === '/v1/weather/now') {
+      const { lat, lng } = latLngQuery(url);
+      try {
+        return { status: 200, body: { now: await deps.weather.current({ lat, lng }) } };
+      } catch (e) {
+        log(`current weather failed: ${(e as Error).message}`);
+        throw new HttpError(503, 'Weather is unavailable right now');
+      }
+    }
+
     if (method === 'GET' && url.pathname === '/v1/weather') {
-      const lat = Number(url.searchParams.get('lat'));
-      const lng = Number(url.searchParams.get('lng'));
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new HttpError(400, 'lat and lng are required');
+      const { lat, lng } = latLngQuery(url);
       return { status: 200, body: { hours: await deps.weather.forecast({ lat, lng }) } };
     }
 

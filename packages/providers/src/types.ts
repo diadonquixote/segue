@@ -14,10 +14,24 @@ export interface PlacesProvider {
   nearby(req: NearbyRequest): Promise<Place[]>;
 }
 
+/** The five skies the app can draw. Coarse on purpose: it's a mood, not a forecast. */
+export type SkyCondition = 'clear' | 'cloudy' | 'rain' | 'heavy-rain' | 'storm';
+
+export interface CurrentWeather {
+  condition: SkyCondition;
+  /** false between sunset and sunrise at that location */
+  isDay: boolean;
+  temperatureC?: number;
+  /** ISO timestamp of the observation */
+  observedAt: string;
+}
+
 export interface WeatherProvider {
   readonly name: string;
   /** Hourly forecast for roughly the next 48 hours. */
   forecast(location: LatLng): Promise<WeatherHour[]>;
+  /** Conditions right now, for the sky behind the app. */
+  current(location: LatLng): Promise<CurrentWeather>;
 }
 
 /** Injectable fetch so providers can be tested without the network. */

@@ -7,6 +7,10 @@ import { createApp } from '../src/app';
 const weather: WeatherProvider = {
   name: 'fake',
   forecast: async () => [{ time: '2026-10-19T06:00:00Z', precipitationProbability: 10 }],
+  current: async ({ lat }) => {
+    if (lat > 80) throw new Error('upstream down');
+    return { condition: 'storm', isDay: true, temperatureC: 25, observedAt: '2026-10-19T06:00:00Z' };
+  },
 };
 
 const ctx = {
@@ -116,5 +120,18 @@ describe('API', () => {
 
   it('returns 404 for unknown routes', async () => {
     expect((await fetch(`${base}/nope`)).status).toBe(404);
+  });
+
+  it('returns the current sky', async () => {
+    const res = await fetch(`${base}/v1/weather/now?lat=14.6&lng=121`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ now: { condition: 'storm', isDay: true, temperatureC: 25, observedAt: '2026-10-19T06:00:00Z' } });
+  });
+
+  it('says plainly when the current sky is unavailable', async () => {
+    expect((await fetch(`${base}/v1/weather/now?lng=121`)).status).toBe(400);
+    const res = await fetch(`${base}/v1/weather/now?lat=85&lng=121`);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: 'Weather is unavailable right now' });
   });
 });

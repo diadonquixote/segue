@@ -1,4 +1,4 @@
-/* Segue — cool, nocturnal, one brass accent for "now" and re-routing. */
+/* Segue — a live sky up top, a calm page below, one brass accent for "now" and re-routing. */
 :root {
   --fog: #f2f4f8;
   --surface: #ffffff;
@@ -102,19 +102,59 @@ textarea {
 .app {
   max-width: var(--max);
   margin: 0 auto;
-  padding: calc(env(safe-area-inset-top) + 20px) var(--gutter) calc(env(safe-area-inset-bottom) + 120px);
+  padding: 4px var(--gutter) calc(env(safe-area-inset-bottom) + 120px);
 }
 
 .boot {
   min-height: 100vh;
 }
 
+/* ---------- the sky band: header on top of the live weather ---------- */
+
+.sky-band {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+/* the sky fades into the page, so the plan below always sits on calm ground */
+.sky-band::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 72px;
+  background: linear-gradient(to bottom, transparent, var(--fog));
+  z-index: 1;
+  pointer-events: none;
+}
+
+.sky-content {
+  position: relative;
+  z-index: 2;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 18px) var(--gutter) 64px;
+}
+
 .top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 16px;
-  margin-bottom: 28px;
+  margin-bottom: 26px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-mark {
+  flex: none;
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.25));
 }
 
 .wordmark {
@@ -127,28 +167,322 @@ textarea {
 
 .date {
   margin: 4px 0 0;
-  color: var(--slate);
   font-size: var(--step--1);
+  opacity: 0.85;
+}
+
+.wordmark,
+.date,
+.weather {
+  text-shadow: 0 1px 12px rgb(0 0 0 / 0.25);
 }
 
 .tabs {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .tabs button {
   border: 0;
   background: none;
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-radius: 999px;
-  color: var(--slate);
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--step--1);
   cursor: pointer;
 }
 
 .tabs button[aria-current='page'] {
-  color: var(--ink);
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--line);
+  color: #1b2240;
+  background: #fff;
+}
+
+.weather {
+  max-width: 62%;
+}
+
+.weather-now {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.temp {
+  font-size: 3rem;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.condition {
+  font-size: var(--step-1);
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.preview-tag {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.6);
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: 3px;
+}
+
+.weather-hint {
+  margin: 6px 0 14px;
+  font-size: var(--step--1);
+  line-height: 1.4;
+  opacity: 0.92;
+}
+
+.where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.where-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.55);
+  background: rgb(255 255 255 / 0.14);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: var(--step--1);
+  font-weight: 600;
+  cursor: pointer;
+  text-shadow: none;
+}
+
+.where-button.on {
+  border-color: transparent;
+  background: rgb(255 255 255 / 0.22);
+}
+
+.where-button:disabled {
+  cursor: progress;
+}
+
+.where-note {
+  font-size: var(--step--1);
+  opacity: 0.85;
+}
+
+.where-blocked {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  opacity: 1;
+}
+
+/* ---------- the sky itself ---------- */
+
+.sky {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, var(--sky-a) 0%, var(--sky-b) 58%, var(--sky-c) 100%);
+  transition: background 0.6s ease;
+  pointer-events: none;
+}
+
+.sky-stage {
+  position: absolute;
+  inset: 0;
+  max-width: var(--max);
+  margin: 0 auto;
+}
+
+/* drifting clouds cross the whole band, each at its own pace */
+.sky-cloud {
+  position: absolute;
+  left: 0;
+  height: auto;
+  transform: translateX(var(--rest));
+  animation: drift linear infinite;
+}
+
+@keyframes drift {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(100vw);
+  }
+}
+
+/* the logo cloud: there in every weather */
+.anchor {
+  position: absolute;
+  right: 4px;
+  top: calc(env(safe-area-inset-top) + 92px);
+  width: min(38vw, 170px);
+  animation: bob 7s ease-in-out infinite;
+  filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.18));
+}
+.anchor svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+@keyframes bob {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.sun {
+  position: absolute;
+  right: max(6vw, calc((100vw - var(--max)) / 2 + 12px));
+  top: calc(env(safe-area-inset-top) + 44px);
+  width: 120px;
+  height: 120px;
+}
+.sun svg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.sun-rays {
+  transform-origin: 0 0;
+  animation: spin 50s linear infinite;
+}
+.sun-glow {
+  position: absolute;
+  inset: -40px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(255 230 150 / 0.55) 0%, rgb(255 230 150 / 0) 65%);
+  animation: glow 5s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes glow {
+  50% {
+    opacity: 0.6;
+    transform: scale(0.92);
+  }
+}
+
+.moon {
+  position: absolute;
+  right: max(10vw, calc((100vw - var(--max)) / 2 + 40px));
+  top: calc(env(safe-area-inset-top) + 56px);
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  box-shadow: inset 13px -5px 0 0 #f3efd9;
+  filter: drop-shadow(0 0 14px rgb(243 239 217 / 0.45));
+}
+
+.star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  animation: twinkle ease-in-out infinite;
+}
+
+@keyframes twinkle {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* rain leans with the wind; heavier weather leans harder */
+.rain {
+  position: absolute;
+  inset: -40px -10% 0;
+  transform: rotate(var(--slant));
+}
+
+.drop {
+  position: absolute;
+  top: 0;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, rgb(220 230 255 / 0), rgb(220 230 255 / 0.9));
+  transform: translateY(var(--rest));
+  animation: fall linear infinite;
+}
+
+@keyframes fall {
+  from {
+    transform: translateY(-30px);
+  }
+  to {
+    transform: translateY(420px);
+  }
+}
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background: #e8edff;
+  opacity: 0;
+  mix-blend-mode: soft-light;
+  animation: flash 7s infinite;
+}
+
+.bolt {
+  position: absolute;
+  right: min(18vw, 80px);
+  top: calc(env(safe-area-inset-top) + 178px);
+  width: 30px;
+  opacity: 0;
+  filter: drop-shadow(0 0 10px #fff6c9);
+  animation: flash 7s infinite;
+}
+
+@keyframes flash {
+  0%,
+  30%,
+  100% {
+    opacity: 0;
+  }
+  31% {
+    opacity: 1;
+  }
+  32% {
+    opacity: 0.2;
+  }
+  33.5% {
+    opacity: 0.95;
+  }
+  36% {
+    opacity: 0;
+  }
+}
+
+/* still sky for people who'd rather not have motion: the weather still reads at a glance */
+@media (prefers-reduced-motion: reduce) {
+  .sky *,
+  .sky-cloud {
+    animation: none !important;
+  }
+  .bolt {
+    opacity: 0.9;
+  }
+  .sky {
+    transition: none;
+  }
 }
 
 /* ---------- the hero: next up ---------- */

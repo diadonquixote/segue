@@ -2,15 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FallbackOption, Plan } from '@segue/engine';
 import { BlockForm, BlocksView } from './components/Blocks';
 import { RerouteSheet, type RerouteChoices } from './components/RerouteSheet';
+import { SkyHeader, type LocationStatus, type View } from './components/SkyHeader';
 import { Today } from './components/Today';
-import { clock, longDate } from './lib/format';
-import { currentLocation } from './lib/location';
+import { clock } from './lib/format';
+import { currentLocation, locate, locationPermission } from './lib/location';
 import { emptyDay, localDate, todayAt, utcOffsetMinutes, type DayState, type PlaceCache, type Settings, type StoredBlock } from './lib/model';
 import { rerouteDay, type RerouteOutcome } from './lib/reroute';
 import { DEFAULT_LOCATION, DEFAULT_SETTINGS, SEED_BLOCKS } from './lib/seed';
 import { getItem, setItem } from './lib/store';
+import { useSky } from './lib/useSky';
 
-type View = 'today' | 'blocks';
 type SheetState = { kind: 'reroute' } | { kind: 'block'; id: string | null } | null;
 
 function usePersisted<T>(key: string, initial: T, ready: boolean): [T, (v: T | ((p: T) => T)) => void] {
@@ -49,7 +50,10 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<RerouteOutcome | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationDenied, setLocationDenied] = useState(false);
   const now = useNow();
+  const sky = useSky(settings.lastLocation ?? DEFAULT_LOCATION, now);
 
   // Load everything from the device first, so the app opens instantly offline.
   useEffect(() => {
@@ -66,6 +70,10 @@ export function App() {
       setPlaceCache(c);
       setReady(true);
       if (!b) await setItem('blocks', SEED_BLOCKS);
+      // Already allowed: quietly refresh where we are, so the sky is local. Never prompts.
+      const permission = await locationPermission();
+      if (permission === 'granted') void locateNow({ quiet: true });
+      if (permission === 'denied') setLocationDenied(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -75,6 +83,22 @@ export function App() {
     const t = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  async function locateNow({ quiet = false } = {}) {
+    setLocating(true);
+    const found = await locate();
+    setLocating(false);
+    if (found.ok) {
+      const at = new Date().toISOString();
+      setLocationDenied(false);
+      setSettings((s) => ({ ...s, lastLocation: found.location, lastLocationLabel: `near you at ${clock(at)}`, lastLocatedAt: at }));
+      if (!quiet) setToast('Using your location. Re-route to plan around it.');
+    } else if (found.reason === 'denied') {
+      setLocationDenied(true);
+    } else if (!quiet) {
+      setToast("Couldn't find you. Try again in a moment.");
+    }
+  }
 
   // A new day starts with a clean slate.
   useEffect(() => {
@@ -101,6 +125,7 @@ export function App() {
           mode: choices.mode,
           lastLocation: location,
           lastLocationLabel: located ? `near you at ${clock(start.toISOString())}` : settings.lastLocationLabel,
+          lastLocatedAt: located ? start.toISOString() : settings.lastLocatedAt,
         };
         setSettings(nextSettings);
         const outcome = await rerouteDay({
@@ -203,110 +228,112 @@ export function App() {
   if (!ready) return <div className="boot" aria-busy="true" />;
 
   const editing = sheet?.kind === 'block' ? blocks.find((b) => b.id === sheet.id) : undefined;
+  const locationStatus: LocationStatus = locating
+    ? { kind: 'locating' }
+    : locationDenied
+      ? { kind: 'denied' }
+      : settings.lastLocationLabel
+        ? { kind: 'located', at: settings.lastLocatedAt }
+        : { kind: 'default' };
 
   return (
-    <div className="app">
-      <header className="top">
-        <div>
-          <h1 className="wordmark">Segue</h1>
-          <p className="date">{longDate(now)}</p>
+    <>
+      <SkyHeader
+        sky={sky}
+        now={now}
+        view={view}
+        onView={setView}
+        location={locationStatus}
+        onLocate={() => void locateNow()}
+      />
+      <div className="app">
+        <main>
+          {view === 'today' ? (
+            <Today
+              day={day}
+              mode={settings.mode}
+              now={now}
+              onDone={(id) => mark('doneIds', id)}
+              onSkip={(id) => mark('skippedIds', id)}
+              onToggleLock={toggleLock}
+              onUseFallback={useFallback}
+              onReroute={() => setSheet({ kind: 'reroute' })}
+              onEditBlocks={() => setView('blocks')}
+            />
+          ) : (
+            <BlocksView
+              blocks={blocks}
+              onEdit={(id) => setSheet({ kind: 'block', id })}
+              onAdd={() => setSheet({ kind: 'block', id: null })}
+              onToggle={(id) => setBlocks((list) => list.map((b) => (b.id === id ? { ...b, active: !b.active } : b)))}
+            />
+          )}
+          {view === 'today' && day.generatedAt && (
+            <p className="muted small stamp">
+              Planned at {clock(day.generatedAt)} {day.source === 'device' ? 'on your phone' : ''}
+              {undo && (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => {
+                      setDay(undo);
+                      setUndo(null);
+                      setToast('Previous plan restored.');
+                    }}
+                  >
+                    Undo re-route
+                  </button>
+                </>
+              )}
+            </p>
+          )}
+        </main>
+
+        <div className="dock">
+          <button
+            type="button"
+            className="reroute"
+            disabled={busy}
+            onClick={() => {
+              setProposal(null);
+              setError(null);
+              setSheet({ kind: 'reroute' });
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path d="M4 7h9a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+              <path d="M11 12l-3 3 3 3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {busy ? 'Rebuilding…' : 'Re-route from here'}
+          </button>
         </div>
-        <nav className="tabs" aria-label="Sections">
-          <button type="button" aria-current={view === 'today' ? 'page' : undefined} onClick={() => setView('today')}>
-            Today
-          </button>
-          <button type="button" aria-current={view === 'blocks' ? 'page' : undefined} onClick={() => setView('blocks')}>
-            Blocks
-          </button>
-        </nav>
-      </header>
 
-      <main>
-        {view === 'today' ? (
-          <Today
-            day={day}
-            mode={settings.mode}
-            now={now}
-            onDone={(id) => mark('doneIds', id)}
-            onSkip={(id) => mark('skippedIds', id)}
-            onToggleLock={toggleLock}
-            onUseFallback={useFallback}
-            onReroute={() => setSheet({ kind: 'reroute' })}
-            onEditBlocks={() => setView('blocks')}
-          />
-        ) : (
-          <BlocksView
-            blocks={blocks}
-            onEdit={(id) => setSheet({ kind: 'block', id })}
-            onAdd={() => setSheet({ kind: 'block', id: null })}
-            onToggle={(id) => setBlocks((list) => list.map((b) => (b.id === id ? { ...b, active: !b.active } : b)))}
+        {toast && (
+          <div className="toast" role="status">
+            {toast}
+          </div>
+        )}
+
+        {sheet?.kind === 'reroute' && (
+          <RerouteSheet
+            settings={settings}
+            busy={busy}
+            error={error}
+            proposal={proposal}
+            onRun={(c) => void run(c, { autoAccept: !day.plan })}
+            onAccept={(plan) => proposal && applyPlan(proposal, plan)}
+            onClose={() => {
+              setSheet(null);
+              setProposal(null);
+            }}
           />
         )}
-        {view === 'today' && day.generatedAt && (
-          <p className="muted small stamp">
-            Planned at {clock(day.generatedAt)} {day.source === 'device' ? 'on your phone' : ''}
-            {undo && (
-              <>
-                {' · '}
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => {
-                    setDay(undo);
-                    setUndo(null);
-                    setToast('Previous plan restored.');
-                  }}
-                >
-                  Undo re-route
-                </button>
-              </>
-            )}
-          </p>
+        {sheet?.kind === 'block' && (
+          <BlockForm initial={editing} onSave={saveBlock} onDelete={deleteBlock} onClose={() => setSheet(null)} />
         )}
-      </main>
-
-      <div className="dock">
-        <button
-          type="button"
-          className="reroute"
-          disabled={busy}
-          onClick={() => {
-            setProposal(null);
-            setError(null);
-            setSheet({ kind: 'reroute' });
-          }}
-        >
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-            <path d="M4 7h9a4 4 0 0 1 0 8H8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-            <path d="M11 12l-3 3 3 3" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          {busy ? 'Rebuilding…' : 'Re-route from here'}
-        </button>
       </div>
-
-      {toast && (
-        <div className="toast" role="status">
-          {toast}
-        </div>
-      )}
-
-      {sheet?.kind === 'reroute' && (
-        <RerouteSheet
-          settings={settings}
-          busy={busy}
-          error={error}
-          proposal={proposal}
-          onRun={(c) => void run(c, { autoAccept: !day.plan })}
-          onAccept={(plan) => proposal && applyPlan(proposal, plan)}
-          onClose={() => {
-            setSheet(null);
-            setProposal(null);
-          }}
-        />
-      )}
-      {sheet?.kind === 'block' && (
-        <BlockForm initial={editing} onSave={saveBlock} onDelete={deleteBlock} onClose={() => setSheet(null)} />
-      )}
-    </div>
+    </>
   );
 }

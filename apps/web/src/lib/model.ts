@@ -43,6 +43,8 @@ export interface Settings {
   mode: TravelMode;
   lastLocation?: LatLng;
   lastLocationLabel?: string;
+  /** ISO time of the last real position fix */
+  lastLocatedAt?: string;
 }
 
 export interface DayState {

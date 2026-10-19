@@ -1,12 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#1B2240"/>
-  <!-- three stave lines, and a phrase that bends from one onto the next -->
-  <g stroke="#3A4472" stroke-width="10" stroke-linecap="round">
-    <line x1="96" y1="186" x2="416" y2="186"/>
-    <line x1="96" y1="256" x2="416" y2="256"/>
-    <line x1="96" y1="326" x2="416" y2="326"/>
+  <!-- A cloud that stays whatever the weather, resting on a road that bends away: the other road, the segue. -->
+  <clipPath id="tile"><rect width="512" height="512" rx="112"/></clipPath>
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="#1B2240"/>
+    <g fill="#F2F4F8">
+      <circle cx="178" cy="236" r="58"/>
+      <circle cx="262" cy="190" r="88"/>
+      <circle cx="350" cy="230" r="62"/>
+      <rect x="120" y="230" width="292" height="64" rx="32"/>
+    </g>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M128 300 H290 C372 300 394 352 350 386 C300 424 210 420 168 462 C136 494 150 540 190 572" stroke="#E0B04F" stroke-width="44"/>
+      <path d="M128 300 H290 C372 300 394 352 350 386 C300 424 210 420 168 462 C136 494 150 540 190 572" stroke="#1B2240" stroke-width="6" stroke-dasharray="18 22" stroke-dashoffset="-8"/>
+    </g>
   </g>
-  <path d="M120 186 C 220 186, 260 326, 392 326" fill="none" stroke="#C2912E" stroke-width="26" stroke-linecap="round"/>
-  <circle cx="120" cy="186" r="30" fill="#F2F4F8"/>
-  <circle cx="392" cy="326" r="30" fill="#C2912E"/>
 </svg>

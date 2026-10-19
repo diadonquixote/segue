@@ -65,6 +65,7 @@ Every vendor sits behind `PlacesProvider` / `WeatherProvider`.
 
 ## The app (`apps/web`)
 
+- **Sky header:** an animated sky (clear, cloudy, rain, heavy rain, storm; day and night) drawn from current conditions where the user is, with the weather in words and a location control (use, update, or how to unblock it). The Segue cloud floats in every sky. The last sky is saved on the phone; past 3 hours it stops claiming any weather. `?sky=storm&night=1` previews any sky.
 - **Today:** a "Next up" hero (time, place, travel, whether it's open, Mark done / Directions / Other options), then the rest of the day, then blocks that didn't fit and why.
 - **Re-route sheet:** location, end of day, energy, getting around. The result is a proposal showing *what changed* and up to three options.
 - **Blocks:** blocks are stored with wall-clock times, so they repeat daily. They can be paused, edited and deleted.
@@ -79,6 +80,7 @@ Every vendor sits behind `PlacesProvider` / `WeatherProvider`.
 | POST | `/v1/reroute` | Rebuild the rest of today. Returns `plan`, `alternatives`, `changes`, `candidates`, `meta`. |
 | GET | `/v1/places/nearby?lat&lng&category&radius&limit` | Candidates for one category. |
 | GET | `/v1/weather?lat&lng` | Hourly forecast. |
+| GET | `/v1/weather/now?lat&lng` | Current conditions as one of five skies, for the app header. |
 | GET | `/health` | Liveness and which providers are active. |
 
 Requests are validated with the zod schemas in `packages/schemas`, and 400 responses list the failing fields. `/v1/reroute` is rate-limited per client (default 30 an hour), and bodies are capped at 256 KB.
@@ -102,4 +104,4 @@ Requests are validated with the zod schemas in `packages/schemas`, and 400 respo
 
 ## Privacy
 
-Location is sent only when re-routing, and the server doesn't store it. Plans and history stay on the device. API keys stay on the server.
+Location is sent only when re-routing or checking the sky (rounded to about 1 km for the sky), and the server doesn't store it. Plans and history stay on the device. API keys stay on the server.
