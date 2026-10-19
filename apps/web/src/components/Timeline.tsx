@@ -11,6 +11,8 @@ interface Props {
   mode: TravelMode;
   calendarEvents: CalendarEvent[];
   nudges: Nudge[];
+  /** weather precautions, e.g. "Bring an umbrella" */
+  weather?: ReactNode;
   /** the quick-add bar */
   adder: ReactNode;
   onOpen: (item: PlanItem) => void;
@@ -58,7 +60,7 @@ function StatusLine({ day }: { day: DayState }) {
 }
 
 function NudgeBanner({ nudge, onReplan, onDismiss }: { nudge: Nudge; onReplan: () => void; onDismiss: () => void }) {
-  const directions = directionsUrl(nudge.item);
+  const directions = nudge.item ? directionsUrl(nudge.item) : null;
   return (
     <div className={`nudge nudge-${nudge.kind}`} role="status">
       <div>
@@ -70,11 +72,11 @@ function NudgeBanner({ nudge, onReplan, onDismiss }: { nudge: Nudge; onReplan: (
           <a className="ghost" href={directions} target="_blank" rel="noreferrer">
             Directions
           </a>
-        ) : (
+        ) : nudge.action === 'replan' ? (
           <button type="button" className="ghost" onClick={onReplan}>
             Re-route
           </button>
-        )}
+        ) : null}
         <button type="button" className="icon-button" aria-label="Dismiss" onClick={onDismiss}>
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -161,6 +163,7 @@ export function Timeline(props: Props) {
       {props.nudges.map((n) => (
         <NudgeBanner key={n.id} nudge={n} onReplan={props.onReplan} onDismiss={() => props.onDismissNudge(n.id)} />
       ))}
+      {props.weather}
       {props.adder}
 
       {!day.plan ? (

@@ -10,11 +10,12 @@ import type { SkyView } from './weather';
 export interface Nudge {
   /** stable per item and kind, so a reminder fires once */
   id: string;
-  kind: 'leave' | 'over' | 'rain';
+  kind: 'leave' | 'over' | 'rain' | 'weather';
   title: string;
   body: string;
-  action: 'directions' | 'replan';
-  item: PlanItem;
+  action: 'directions' | 'replan' | 'none';
+  /** the plan item it's about; weather precautions have none */
+  item?: PlanItem;
   /** when it becomes relevant (ms) */
   at: number;
 }
@@ -26,7 +27,7 @@ const OVER_WINDOW_MIN = 60;
 export function nudgesFor(
   day: DayState,
   now: Date,
-  opts: { mode: TravelMode; blocks: StoredBlock[]; sky?: SkyView },
+  opts: { mode: TravelMode; blocks: StoredBlock[]; sky?: SkyView; /** the top weather precaution, e.g. "Bring an umbrella" */ tip?: string },
 ): Nudge[] {
   const t = now.getTime();
   const finished = new Set([...day.doneIds, ...day.skippedIds]);
@@ -41,7 +42,7 @@ export function nudgesFor(
       id: `leave:${next.blockId}:${next.start}`,
       kind: 'leave',
       title: t >= leaveAt ? 'Time to leave' : `Leave by ${clock(new Date(leaveAt).toISOString())}`,
-      body: `${next.title} at ${next.place.name} · ${travelLine(next, opts.mode) ?? ''}`.replace(/ · $/, ''),
+      body: `${next.title} at ${next.place.name} · ${travelLine(next, opts.mode) ?? ''}`.replace(/ · $/, '') + (opts.tip ? `. ${opts.tip}.` : ''),
       action: 'directions',
       item: next,
       at: leaveAt - LEAVE_HEADS_UP_MIN * 60_000,
@@ -91,6 +92,6 @@ export function nudgesFor(
 
 /** The nudges to show right now, most urgent first. */
 export function activeNudges(nudges: Nudge[], now: Date): Nudge[] {
-  const order = { over: 0, leave: 1, rain: 2 } as const;
+  const order = { over: 0, leave: 1, rain: 2, weather: 3 } as const;
   return nudges.filter((n) => n.at <= now.getTime()).sort((a, b) => order[a.kind] - order[b.kind]);
 }

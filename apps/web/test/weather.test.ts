@@ -11,7 +11,9 @@ const saved = (ageMs: number, location = MANILA): SavedSky => ({
 
 describe('the sky', () => {
   it('shows the saved weather while it is recent', () => {
-    expect(skyToShow(saved(10 * 60_000), now)).toEqual({ condition: 'rain', isDay: true, temperatureC: 26.6, known: true });
+    const view = skyToShow(saved(10 * 60_000), now);
+    expect(view).toMatchObject({ condition: 'rain', isDay: true, temperatureC: 26.6, known: true });
+    expect(view.details?.observedAt).toBe(now.toISOString());
   });
 
   it('makes no weather claim once the saved sky is stale', () => {

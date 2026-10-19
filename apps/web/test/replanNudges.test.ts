@@ -68,10 +68,16 @@ describe('nudges', () => {
     expect(late.title).toBe('Time to leave');
   });
 
+  it('adds the top weather tip to the leave reminder', () => {
+    const day = dayWith([item('coffee', '14:30', '15:30', { place, travelMinutesBefore: 12 })]);
+    const [leave] = nudgesFor(day, now, { mode: 'walk', blocks: [], tip: 'Bring an umbrella' });
+    expect(leave!.body).toMatch(/Café Uno.*\. Bring an umbrella\.$/);
+  });
+
   it('asks about something that ran over, but not a fixed meeting', () => {
     const day = dayWith([item('work', '12:00', '13:50'), item('mtg', '12:00', '13:30', { fixed: true })]);
     const over = nudgesFor(day, now, { mode: 'walk', blocks: [] }).filter((n) => n.kind === 'over');
-    expect(over.map((n) => n.item.blockId)).toEqual(['work']);
+    expect(over.map((n) => n.item?.blockId)).toEqual(['work']);
     const done = nudgesFor({ ...day, doneIds: ['work'] }, now, { mode: 'walk', blocks: [] });
     expect(done.some((n) => n.kind === 'over')).toBe(false);
   });

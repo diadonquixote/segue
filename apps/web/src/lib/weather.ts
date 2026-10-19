@@ -13,7 +13,12 @@ export interface CurrentWeather {
   condition: SkyCondition;
   isDay: boolean;
   temperatureC?: number;
+  feelsLikeC?: number;
+  uvIndex?: number;
+  gustKmh?: number;
+  precipitationMm?: number;
   observedAt: string;
+  upcoming?: { time: string; rainChance: number; uvIndex?: number; feelsLikeC?: number }[];
 }
 
 /** What's saved on the phone. */
@@ -30,6 +35,8 @@ export interface SkyView {
   temperatureC?: number;
   known: boolean;
   preview?: boolean;
+  /** feels-like, UV, wind and the next hours, when known: what precautions are based on */
+  details?: CurrentWeather;
 }
 
 /** Check the sky again this often while the app is open. */
@@ -63,15 +70,39 @@ export function skyToShow(saved: SavedSky | undefined, now: Date): SkyView {
   const age = saved ? now.getTime() - Date.parse(saved.fetchedAt) : Infinity;
   if (!saved || age >= SKY_STALE_MS) return { condition: 'clear', isDay: isDaytime(now), known: false };
   const { condition, isDay, temperatureC } = saved.weather;
-  return { condition, isDay, temperatureC, known: true };
+  return { condition, isDay, temperatureC, known: true, details: saved.weather };
 }
 
-/** `?sky=storm` (and `&night=1`) shows any sky, for previews and design checks. */
-export function skyPreview(search: string): Pick<SkyView, 'condition' | 'isDay'> | null {
+/**
+ * `?sky=storm` (and `&night=1`) shows any sky, for previews and design checks.
+ * `&feels=38&uv=10&gust=60&rainAt=15` adds details, to preview precautions.
+ */
+export function skyPreview(search: string, now = new Date()): Pick<SkyView, 'condition' | 'isDay' | 'details'> | null {
   const params = new URLSearchParams(search);
   const sky = params.get('sky');
   if (!sky || !SKY_CONDITIONS.includes(sky as SkyCondition)) return null;
-  return { condition: sky as SkyCondition, isDay: params.get('night') !== '1' };
+  const condition = sky as SkyCondition;
+  const isDay = params.get('night') !== '1';
+  const num = (k: string) => (params.has(k) && Number.isFinite(Number(params.get(k))) ? Number(params.get(k)) : undefined);
+  const feels = num('feels');
+  const uv = num('uv');
+  const gust = num('gust');
+  const rainAt = num('rainAt');
+  if (feels === undefined && uv === undefined && gust === undefined && rainAt === undefined) return { condition, isDay };
+  const upcoming =
+    rainAt === undefined
+      ? undefined
+      : Array.from({ length: 12 }, (_, i) => {
+          const t = new Date(now);
+          t.setMinutes(0, 0, 0);
+          t.setHours(t.getHours() + i);
+          return { time: t.toISOString(), rainChance: t.getHours() >= rainAt ? 80 : 5, uvIndex: uv };
+        });
+  return {
+    condition,
+    isDay,
+    details: { condition, isDay, feelsLikeC: feels, uvIndex: uv, gustKmh: gust, observedAt: now.toISOString(), upcoming },
+  };
 }
 
 export async function fetchCurrentWeather(location: LatLng, timeoutMs = 6000): Promise<CurrentWeather | null> {

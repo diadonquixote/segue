@@ -59,6 +59,7 @@ test('plan my day: leave a routine out for today only', async ({ page }) => {
   await page.getByRole('button', { name: 'Plan', exact: true }).click();
   await expect(page).toHaveURL(/\/app\/plan(\?|$)/);
   await expect(page.getByRole('heading', { name: 'Plan your day' })).toBeVisible();
+  await page.getByText("What's in today").click();
   await page.getByText('Include Stretch today').locator('..').locator('.track').click();
   await page.getByRole('button', { name: 'Re-plan my day' }).click();
   await page.getByRole('dialog', { name: 'Re-route from here' }).getByRole('button', { name: 'Use this plan' }).click();
@@ -72,7 +73,7 @@ test('connect Google Calendar, leave one event out, and plan around the rest', a
   await fakeGoogle(page);
   await onboard(page, ['Lunch 12:30']);
   await page.getByRole('button', { name: 'Plan', exact: true }).click();
-  await page.locator('.plan-page').getByRole('button', { name: 'Connect' }).click();
+  await page.locator('.hours-panel').getByRole('button', { name: 'Connect calendar' }).click();
   await expect(page).toHaveURL(/\/app\/calendar(\?|$)/);
   await expect(page.getByText('Reads, never writes')).toBeVisible();
 
@@ -90,4 +91,66 @@ test('connect Google Calendar, leave one event out, and plan around the rest', a
 
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('button', { name: 'Manage Google Calendar' })).toBeVisible();
+});
+
+test('hour by hour: tap an hour to add something then', async ({ page }) => {
+  await onboard(page, ['Lunch 12:30']);
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Hour by hour' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add something at 7:00 PM' }).focus();
+  await page.keyboard.press('Enter'); // keyboard: on the hour
+  const sheet = page.getByRole('dialog', { name: 'Add at 7:00 PM' });
+  // "dinner" has its own usual window; the tapped hour still wins
+  await sheet.getByLabel('What is it?').fill('Dinner with Ana 45 min');
+  await expect(sheet.locator('.quick-preview')).toContainText('7 PM–7:45 PM');
+  await sheet.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Re-route from here' }).getByRole('button', { name: 'Use this plan' }).click();
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  await expect(page.locator('.hour-item', { hasText: 'Dinner with Ana' })).toContainText('7:00 PM–7:45 PM');
+});
+
+test('hour by hour: drag an item to move it', async ({ page }) => {
+  await onboard(page, ['Lunch 12:30', 'Read 30 min after 2pm']);
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  const item = page.locator('.hour-item', { hasText: 'Read' });
+  const before = await item.locator('.hour-item-body span').first().innerText();
+  const grip = item.locator('.hour-grip');
+  await grip.scrollIntoViewIfNeeded();
+  const box = (await grip.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  for (let dy = 0; dy <= 144; dy += 12) await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy); // two hours down
+  await page.mouse.up();
+  await expect(page.locator('.toast')).toContainText('pinned');
+  const after = page.locator('.hour-item', { hasText: 'Read' });
+  await expect(after).toContainText('Pinned');
+  await expect(after.locator('.hour-item-body span').first()).not.toHaveText(before);
+});
+
+test('weather precautions: heavy rain while driving, then a hot sunny day', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-20T13:00:00+08:00'));
+  await page.goto('/app?sky=heavy-rain');
+  await page.getByRole('button', { name: /^Next/ }).click();
+  await page.getByRole('radio', { name: /Car or ride-hail/ }).click();
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await page.locator('#quick-add').fill('Groceries before 8');
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Plan my day' }).click();
+
+  const card = page.locator('.precautions');
+  await expect(card).toContainText('Drive safely');
+  await expect(card).toContainText('headlights');
+  await expect(card).toContainText('Avoid flooded streets');
+  await expect(card).toContainText('Bring an umbrella');
+  await card.getByRole('button', { name: 'Got it' }).click();
+  await expect(card).toHaveCount(0);
+
+  await page.goto('/app?sky=clear&feels=38&uv=10');
+  const hot = page.locator('.precautions');
+  await expect(hot).toContainText('Drink water, find shade');
+  await expect(hot).toContainText('feel like 38°');
+  await expect(hot).toContainText('Wear sunscreen');
+  await expect(page.locator('.weather-line')).toContainText('feels');
+  await page.getByRole('button', { name: 'Plan', exact: true }).click();
+  await expect(page.locator('.precaution-strip')).toContainText('Wear sunscreen');
 });

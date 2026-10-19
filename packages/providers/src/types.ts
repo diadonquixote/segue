@@ -22,8 +22,25 @@ export interface CurrentWeather {
   /** false between sunset and sunrise at that location */
   isDay: boolean;
   temperatureC?: number;
+  /** "feels like": temperature with humidity and wind, which is what heat advice is based on */
+  feelsLikeC?: number;
+  /** 0 at night, 11+ is extreme */
+  uvIndex?: number;
+  gustKmh?: number;
+  precipitationMm?: number;
   /** ISO timestamp of the observation */
   observedAt: string;
+  /** the next 12 hours, for "rain from 3 PM" and the day's highest UV */
+  upcoming?: UpcomingHour[];
+}
+
+export interface UpcomingHour {
+  /** ISO timestamp, start of the hour */
+  time: string;
+  /** 0–100 */
+  rainChance: number;
+  uvIndex?: number;
+  feelsLikeC?: number;
 }
 
 export interface WeatherProvider {

@@ -65,6 +65,8 @@ export interface DayState {
   lockedIds: string[];
   /** routines and calendar events left out of today's plan (they come back tomorrow) */
   excludedIds?: string[];
+  /** weather precautions already acknowledged today, by kind */
+  dismissedPrecautions?: string[];
   generatedAt?: string;
   source?: 'server' | 'device';
   warnings: string[];

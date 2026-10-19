@@ -1,8 +1,20 @@
 import type { ReactNode } from 'react';
 import type { Energy, PlanItem, TravelMode } from '@segue/engine';
-import { calendarBlockId, isCalendarBlock, type CalendarEvent } from '../lib/calendar';
+import { calendarBlockId, type CalendarEvent } from '../lib/calendar';
 import { clock, duration, longDate, minutesBetween } from '../lib/format';
-import { CATEGORY_LABEL, ENERGY_LABEL, MODE_LABEL, PRIORITY_LABEL, todayAt, type DayState, type Settings, type StoredBlock } from '../lib/model';
+import {
+  CATEGORY_LABEL,
+  ENERGY_LABEL,
+  MODE_LABEL,
+  PRIORITY_LABEL,
+  todayAt,
+  type DayState,
+  type Settings,
+  type StoredBlock,
+} from '../lib/model';
+import { HourPlanner } from './HourPlanner';
+import { PrecautionStrip } from './Precautions';
+import type { Precaution } from '../lib/precautions';
 import { Segmented } from './Sheet';
 
 interface Props {
@@ -21,53 +33,29 @@ interface Props {
   onRemoveBlock: (id: string) => void;
   onEditBlock: (id: string) => void;
   onOpenCalendar: () => void;
+  onOpenItem: (item: PlanItem) => void;
+  onMoveItem: (id: string, hhmm: string) => void;
+  onAddAt: (hhmm: string) => void;
   onPlan: () => void;
   busy: boolean;
+  precautions: Precaution[];
 }
 
-const HOUR_PX = 56;
-
-/** The whole day on an hour grid: what's planned, with a line for now. */
-function DayGlance({ items, now, endOfDay }: { items: PlanItem[]; now: Date; endOfDay: string }) {
-  const startMs = Math.min(now.getTime(), ...items.map((i) => Date.parse(i.start)));
-  const endMs = Math.max(Date.parse(endOfDay), ...items.map((i) => Date.parse(i.end)));
-  const first = new Date(startMs);
-  first.setMinutes(0, 0, 0);
-  const hours = Math.max(1, Math.ceil((endMs - first.getTime()) / 3_600_000));
-  const y = (ms: number) => ((ms - first.getTime()) / 3_600_000) * HOUR_PX;
-  const nowY = y(now.getTime());
-
-  return (
-    <div className="glance" style={{ height: hours * HOUR_PX }} aria-label="Your day at a glance" role="img">
-      {Array.from({ length: hours + 1 }, (_, h) => {
-        const t = new Date(first.getTime() + h * 3_600_000);
-        return (
-          <div key={h} className="glance-hour" style={{ top: h * HOUR_PX }}>
-            <span>{clock(t.toISOString()).replace(':00', '')}</span>
-          </div>
-        );
-      })}
-      {items.map((i) => {
-        const top = y(Date.parse(i.start));
-        const height = Math.max(24, y(Date.parse(i.end)) - top - 2);
-        const travel = i.travelMinutesBefore * (HOUR_PX / 60);
-        return (
-          <div key={i.blockId}>
-            {travel >= 6 && <div className="glance-travel" style={{ top: top - travel, height: travel }} />}
-            <div
-              className={`glance-item${isCalendarBlock(i.blockId) ? ' cal' : i.fixed ? ' fixed' : ''}`}
-              style={{ top, height }}
-              title={`${clock(i.start)}–${clock(i.end)} ${i.title}`}
-            >
-              <strong>{i.title}</strong>
-              {height >= 40 && <span>{i.place?.name ?? clock(i.start)}</span>}
-            </div>
-          </div>
-        );
-      })}
-      {nowY >= 0 && nowY <= hours * HOUR_PX && <div className="glance-now" style={{ top: nowY }} />}
-    </div>
-  );
+/** Before there's a plan, the grid shows the day's fixed points: calendar events and set times. */
+function fixedPoints(events: CalendarEvent[], blocks: StoredBlock[], now: Date): PlanItem[] {
+  const base = { travelMinutesBefore: 0, confidence: 'no-place' as const, fixed: true, fallbacks: [] };
+  return [
+    ...events.map((e) => ({ ...base, blockId: calendarBlockId(e.id), title: e.title, start: e.start, end: e.end })),
+    ...blocks
+      .filter((b) => b.fixedStart && b.fixedEnd)
+      .map((b) => ({
+        ...base,
+        blockId: b.id,
+        title: b.title,
+        start: new Date(todayAt(b.fixedStart!, now)).toISOString(),
+        end: new Date(todayAt(b.fixedEnd!, now)).toISOString(),
+      })),
+  ].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
 }
 
 export function PlanPage(props: Props) {
@@ -88,17 +76,28 @@ export function PlanPage(props: Props) {
   const count = inToday.length + events.length;
   const tooMuch = wanted > available;
 
+  const finished = new Set([...day.doneIds, ...day.skippedIds]);
+  const planned = day.plan?.items.filter((i) => !finished.has(i.blockId));
+  const preview = !planned;
+  const gridItems = planned ?? fixedPoints(events, inToday, now);
+  const unfit = day.plan?.unscheduled.filter((u) => !finished.has(u.blockId)) ?? [];
+
   return (
     <div className="page plan-page">
       <header className="page-head plain">
         <div>
           <h2 className="page-title">Plan your day</h2>
-          <p className="muted">{longDate(now)} · choose what's in today, then let Segue fit it together.</p>
+          <p className="muted">{longDate(now)}</p>
         </div>
       </header>
 
-      <section className="panel">
-        <h3 className="panel-title">How's today looking?</h3>
+      <details className="panel day-settings">
+        <summary>
+          <span>
+            Ends {clock(endOfDay)} · Feeling {ENERGY_LABEL[settings.energy].toLowerCase()} · {MODE_LABEL[settings.mode]}
+          </span>
+          <span className="text-button">Change</span>
+        </summary>
         <div className="pair">
           <label className="field">
             <span>Day ends around</span>
@@ -121,15 +120,70 @@ export function PlanPage(props: Props) {
           onChange={(energy: Energy) => props.onSettings({ energy })}
           options={(['low', 'medium', 'high'] as const).map((v) => ({ value: v, label: ENERGY_LABEL[v] }))}
         />
+      </details>
+
+      <PrecautionStrip items={props.precautions} />
+      {props.adder}
+
+      <section className="panel hours-panel" aria-labelledby="hours-title">
+        <div className="panel-row">
+          <h3 id="hours-title" className="panel-title">
+            Hour by hour
+          </h3>
+          {!props.calendarConnected ? (
+            <button type="button" className="text-button" onClick={props.onOpenCalendar}>
+              Connect calendar
+            </button>
+          ) : day.plan ? (
+            <span className="muted small">{day.plan.totalTravelMinutes} min travel</span>
+          ) : (
+            <span className="muted small">Not planned yet</span>
+          )}
+        </div>
+        <p className="muted small hours-hint">
+          {preview
+            ? 'These are the fixed points of your day. Tap an hour to add something, then Plan my day fits everything around them.'
+            : 'Tap an hour to add something. Tap an item for details, or drag its handle to move it.'}
+        </p>
+        <HourPlanner
+          items={gridItems}
+          now={now}
+          endOfDay={endOfDay}
+          lockedIds={new Set(day.lockedIds)}
+          preview={preview}
+          onOpen={props.onOpenItem}
+          onMove={props.onMoveItem}
+          onAddAt={props.onAddAt}
+        />
+        {unfit.length > 0 && (
+          <div className="hours-unfit">
+            <strong>Didn't fit</strong>
+            <ul>
+              {unfit.map((u) => (
+                <li key={u.blockId}>
+                  {u.title}
+                  <span className="muted small"> · {u.reason}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
-      <section className="panel">
-        <div className="panel-row">
-          <h3 className="panel-title">On your calendar</h3>
+      <details className="panel">
+        <summary className="panel-summary">
+          <span className="panel-title">What's in today</span>
+          <span className="muted small">
+            {count} {count === 1 ? 'thing' : 'things'}
+          </span>
+        </summary>
+
+        <h4 className="sub-title">
+          On your calendar
           <button type="button" className="text-button" onClick={props.onOpenCalendar}>
             {props.calendarConnected ? 'Manage' : 'Connect'}
           </button>
-        </div>
+        </h4>
         {!props.calendarConnected ? (
           <p className="muted small">Connect Google Calendar and your meetings and classes become fixed times Segue plans around.</p>
         ) : props.calendarEvents.length === 0 ? (
@@ -158,12 +212,11 @@ export function PlanPage(props: Props) {
             })}
           </ul>
         )}
-      </section>
 
-      <section className="panel">
-        <h3 className="panel-title">Just for today</h3>
-        {props.adder}
-        {oneOffs.length > 0 && (
+        <h4 className="sub-title">Just for today</h4>
+        {oneOffs.length === 0 ? (
+          <p className="muted small">Nothing yet. Tap an hour above, or type in the bar.</p>
+        ) : (
           <ul className="pick-list">
             {oneOffs.map((b) => (
               <li key={b.id}>
@@ -182,10 +235,8 @@ export function PlanPage(props: Props) {
             ))}
           </ul>
         )}
-      </section>
 
-      <section className="panel">
-        <h3 className="panel-title">Routines</h3>
+        <h4 className="sub-title">Routines</h4>
         {routines.length === 0 ? (
           <p className="muted small">No routines yet. Add things you do most days in Routines.</p>
         ) : (
@@ -210,17 +261,7 @@ export function PlanPage(props: Props) {
             })}
           </ul>
         )}
-      </section>
-
-      {day.plan && day.plan.items.length > 0 && (
-        <section className="panel">
-          <div className="panel-row">
-            <h3 className="panel-title">Your day at a glance</h3>
-            <span className="muted small">{day.plan.totalTravelMinutes} min travel</span>
-          </div>
-          <DayGlance items={day.plan.items.filter((i) => !day.doneIds.includes(i.blockId) && !day.skippedIds.includes(i.blockId))} now={now} endOfDay={endOfDay} />
-        </section>
-      )}
+      </details>
 
       <div className="plan-bar">
         <p className={tooMuch ? 'plan-sum warn-text' : 'plan-sum'}>

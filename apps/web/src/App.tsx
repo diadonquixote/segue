@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FallbackOption, Place, Plan, PlanItem } from '@segue/engine';
+import { AddAtSheet } from './components/AddAtSheet';
 import { BlockForm, RoutinesView } from './components/Blocks';
 import { CalendarCard } from './components/CalendarCard';
 import { CalendarPage } from './components/CalendarPage';
 import { ItemSheet } from './components/ItemSheet';
 import { Onboarding } from './components/Onboarding';
 import { PlanPage } from './components/PlanPage';
+import { PrecautionsCard } from './components/Precautions';
 import { QuickAdd } from './components/QuickAdd';
 import { ReplanSheet } from './components/ReplanSheet';
 import { SettingsSheet } from './components/SettingsSheet';
@@ -30,7 +32,8 @@ import {
   type Settings,
   type StoredBlock,
 } from './lib/model';
-import { activeNudges, nudgesFor } from './lib/nudges';
+import { activeNudges, nudgesFor, type Nudge } from './lib/nudges';
+import { precautionsFor } from './lib/precautions';
 import { BUSY_BLOCK_ID, adjustFor, type ReplanReason } from './lib/replan';
 import { rerouteDay, type RerouteOutcome } from './lib/reroute';
 import { navigate, useRoute } from './lib/router';
@@ -49,6 +52,7 @@ type SheetState =
   | { kind: 'item'; id: string }
   | { kind: 'block'; id: string | null; draft?: StoredBlock }
   | { kind: 'settings' }
+  | { kind: 'addAt'; at: string }
   | null;
 
 interface Toast {
@@ -407,9 +411,19 @@ export function App() {
     window.location.reload();
   }
 
-  const allNudges = useMemo(() => nudgesFor(day, now, { mode: settings.mode, blocks, sky }), [day, now, settings.mode, blocks, sky]);
+  // Weather precautions: "Bring an umbrella", "Wear sunscreen", "Drive safely".
+  const precautions = useMemo(() => precautionsFor(sky, { now, mode: settings.mode }), [sky, now, settings.mode]);
+  const freshPrecautions = precautions.filter((p) => !(day.dismissedPrecautions ?? []).includes(p.kind));
+  const allNudges = useMemo(
+    () => nudgesFor(day, now, { mode: settings.mode, blocks, sky, tip: precautions[0]?.title }),
+    [day, now, settings.mode, blocks, sky, precautions],
+  );
   const shownNudges = activeNudges(allNudges, now).filter((n) => !dismissed.has(n.id));
-  useReminders(allNudges, !!settings.reminders);
+  // Serious weather also becomes a notification (once per kind per day) when Segue isn't on screen.
+  const weatherNudges: Nudge[] = precautions
+    .filter((p) => p.level !== 'info' && !sky.preview)
+    .map((p) => ({ id: `weather:${p.kind}:${today}`, kind: 'weather', title: p.title, body: p.body, action: 'none', at: now.getTime() }));
+  useReminders(useMemo(() => [...allNudges, ...weatherNudges], [allNudges, weatherNudges.map((n) => n.id).join()]), !!settings.reminders); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) return <div className="boot" aria-busy="true" />;
 
@@ -495,6 +509,14 @@ export function App() {
               mode={settings.mode}
               calendarEvents={calendarEvents}
               nudges={shownNudges}
+              weather={
+                <PrecautionsCard
+                  items={freshPrecautions}
+                  onDismiss={() =>
+                    setDay((d) => ({ ...d, dismissedPrecautions: [...new Set([...(d.dismissedPrecautions ?? []), ...precautions.map((p) => p.kind)])] }))
+                  }
+                />
+              }
               adder={
                 <QuickAdd
                   now={now}
@@ -540,8 +562,12 @@ export function App() {
               onRemoveBlock={(id) => setBlocks((list) => list.filter((b) => b.id !== id))}
               onEditBlock={(id) => setSheet({ kind: 'block', id })}
               onOpenCalendar={() => navigate('calendar')}
+              onOpenItem={(item) => setSheet({ kind: 'item', id: item.blockId })}
+              onMoveItem={moveItem}
+              onAddAt={(at) => setSheet({ kind: 'addAt', at })}
               onPlan={() => void replan(null, { autoAccept: !day.plan })}
               busy={replanBusy}
+              precautions={precautions}
             />
           )}
           {route === 'calendar' && (
@@ -626,6 +652,17 @@ export function App() {
             isNew={!!sheet.draft}
             onSave={saveBlock}
             onDelete={deleteBlock}
+            onClose={() => setSheet(null)}
+          />
+        )}
+        {sheet?.kind === 'addAt' && (
+          <AddAtSheet
+            at={sheet.at}
+            now={now}
+            onAdd={(added) => {
+              setSheet(null);
+              quickAdded(added);
+            }}
             onClose={() => setSheet(null)}
           />
         )}

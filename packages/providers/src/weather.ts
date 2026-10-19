@@ -1,5 +1,5 @@
 import type { LatLng, WeatherHour } from '@segue/engine';
-import { ProviderError, fetchWithTimeout, type CurrentWeather, type FetchFn, type SkyCondition, type WeatherProvider } from './types';
+import { ProviderError, fetchWithTimeout, type CurrentWeather, type FetchFn, type SkyCondition, type UpcomingHour, type WeatherProvider } from './types';
 
 /**
  * WMO weather code (as Open-Meteo reports it) → one of the five skies.
@@ -46,21 +46,46 @@ export class OpenMeteoProvider implements WeatherProvider {
     const params = new URLSearchParams({
       latitude: location.lat.toFixed(4),
       longitude: location.lng.toFixed(4),
-      current: 'weather_code,precipitation,temperature_2m,is_day',
+      current: 'weather_code,precipitation,temperature_2m,apparent_temperature,is_day,uv_index,wind_gusts_10m',
+      hourly: 'precipitation_probability,uv_index,apparent_temperature',
+      forecast_hours: '12',
       timezone: 'GMT',
     });
     const res = await fetchWithTimeout(this.fetchFn, `${this.endpoint}?${params}`, { timeoutMs: 4000 });
     if (!res.ok) throw new ProviderError(this.name, `current returned ${res.status}`, res.status);
+    type Num = number | null | undefined;
     const json = (await res.json()) as {
-      current?: { time: string; weather_code?: number | null; precipitation?: number | null; temperature_2m?: number | null; is_day?: number | null };
+      current?: {
+        time: string;
+        weather_code?: Num;
+        precipitation?: Num;
+        temperature_2m?: Num;
+        apparent_temperature?: Num;
+        is_day?: Num;
+        uv_index?: Num;
+        wind_gusts_10m?: Num;
+      };
+      hourly?: { time: string[]; precipitation_probability?: Num[]; uv_index?: Num[]; apparent_temperature?: Num[] };
     };
     const c = json.current;
     if (!c?.time || c.weather_code == null) throw new ProviderError(this.name, 'current conditions missing');
+    const h = json.hourly;
+    const upcoming: UpcomingHour[] = (h?.time ?? []).map((t, i) => ({
+      time: `${t}:00Z`,
+      rainChance: h?.precipitation_probability?.[i] ?? 0,
+      uvIndex: h?.uv_index?.[i] ?? undefined,
+      feelsLikeC: h?.apparent_temperature?.[i] ?? undefined,
+    }));
     return {
       condition: skyFromWmo(c.weather_code, c.precipitation ?? 0),
       isDay: c.is_day !== 0,
       temperatureC: c.temperature_2m ?? undefined,
+      feelsLikeC: c.apparent_temperature ?? undefined,
+      uvIndex: c.uv_index ?? undefined,
+      gustKmh: c.wind_gusts_10m ?? undefined,
+      precipitationMm: c.precipitation ?? undefined,
       observedAt: `${c.time}:00Z`,
+      upcoming,
     };
   }
 }

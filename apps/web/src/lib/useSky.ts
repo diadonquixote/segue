@@ -48,5 +48,6 @@ export function useSky(location: LatLng, now: Date): SkyView {
   }, [loaded, online, saved, location, now]);
 
   const view = skyToShow(saved, now);
-  return preview ? { ...view, ...preview, known: true, preview: true } : view;
+  // A preview keeps the real temperature but uses its own details, so precautions follow the preview.
+  return preview ? { ...view, details: undefined, ...preview, known: true, preview: true } : view;
 }

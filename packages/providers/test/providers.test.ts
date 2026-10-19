@@ -204,9 +204,25 @@ describe('Open-Meteo', () => {
 
   it('reads current conditions into one of the five skies', async () => {
     const w = new OpenMeteoProvider(
-      jsonFetch({ current: { time: '2026-10-19T11:00', weather_code: 63, precipitation: 1.2, temperature_2m: 26.4, is_day: 0 } }),
+      jsonFetch({
+        current: { time: '2026-10-19T11:00', weather_code: 63, precipitation: 1.2, temperature_2m: 26.4, apparent_temperature: 30.1, is_day: 0, uv_index: 0, wind_gusts_10m: 41 },
+        hourly: { time: ['2026-10-19T11:00', '2026-10-19T12:00'], precipitation_probability: [80, null], uv_index: [0, 0.4], apparent_temperature: [30.1, 29.8] },
+      }),
     );
-    expect(await w.current(MANILA)).toEqual({ condition: 'rain', isDay: false, temperatureC: 26.4, observedAt: '2026-10-19T11:00:00Z' });
+    expect(await w.current(MANILA)).toEqual({
+      condition: 'rain',
+      isDay: false,
+      temperatureC: 26.4,
+      feelsLikeC: 30.1,
+      uvIndex: 0,
+      gustKmh: 41,
+      precipitationMm: 1.2,
+      observedAt: '2026-10-19T11:00:00Z',
+      upcoming: [
+        { time: '2026-10-19T11:00:00Z', rainChance: 80, uvIndex: 0, feelsLikeC: 30.1 },
+        { time: '2026-10-19T12:00:00Z', rainChance: 0, uvIndex: 0.4, feelsLikeC: 29.8 },
+      ],
+    });
   });
 
   it('rejects a response without a weather code', async () => {

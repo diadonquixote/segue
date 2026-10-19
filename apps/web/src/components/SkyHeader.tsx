@@ -97,7 +97,13 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
             {sky.known ? (
               <>
                 {sky.temperatureC !== undefined && <span className="temp">{temp(sky.temperatureC, tempUnit)}</span>}
-                <span className="condition">{sky.isDay ? copy.day : copy.night}</span>
+                <span className="condition">
+                  {sky.isDay ? copy.day : copy.night}
+                  {sky.details?.feelsLikeC !== undefined &&
+                    (sky.temperatureC === undefined || Math.abs(sky.details.feelsLikeC - sky.temperatureC) >= 2) && (
+                      <span className="feels"> · feels {temp(sky.details.feelsLikeC, tempUnit)}</span>
+                    )}
+                </span>
                 {sky.preview && <span className="preview-tag">Preview</span>}
               </>
             ) : (

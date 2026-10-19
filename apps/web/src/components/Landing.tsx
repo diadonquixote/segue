@@ -32,7 +32,7 @@ const STEPS = [
 const FEATURES = [
   {
     title: 'The weather outside',
-    body: 'When it rains, outdoor plans move inside. The sky at the top of the app shows what it looks like where you are.',
+    body: 'When it rains, outdoor plans move inside and Segue tells you to bring an umbrella. On hot days it says when to wear sunscreen and find shade, and in heavy rain, to drive safely.',
     icon: 'M7 18h10a4 4 0 0 0 .5-8 5.5 5.5 0 0 0-10.6 1.5A3.3 3.3 0 0 0 7 18zM9 21l1-2M13 21l1-2',
   },
   {
