@@ -4,6 +4,7 @@
  */
 import { haversineMeters, type LatLng } from '@segue/engine';
 import { API_URL } from './reroute';
+import { moonState, type DayPhase, type MoonState, type SunState } from './sunTimes';
 
 /** Mirrors SkyCondition / CurrentWeather in @segue/providers (the app doesn't depend on that package). */
 export type SkyCondition = 'clear' | 'cloudy' | 'rain' | 'heavy-rain' | 'storm';
@@ -28,10 +29,18 @@ export interface SavedSky {
   fetchedAt: string;
 }
 
-/** What the header draws. `known: false` means a plain sky with no weather claim. */
+/**
+ * What the header draws. `known: false` means a plain sky with no weather claim.
+ * The weather gives the condition and temperature; the time of day always
+ * comes from the clock and where the sky is (`sun`, `moon`, `phase`).
+ */
 export interface SkyView {
   condition: SkyCondition;
+  /** the sun is above the horizon */
   isDay: boolean;
+  phase: DayPhase;
+  sun?: SunState;
+  moon?: MoonState;
   temperatureC?: number;
   known: boolean;
   preview?: boolean;
@@ -54,11 +63,6 @@ export const SKY_COPY: Record<SkyCondition, { day: string; night: string; hint: 
   storm: { day: 'Thunderstorm', night: 'Thunderstorm', hint: 'Stay indoors if you can. Re-route to keep the day dry.' },
 };
 
-/** Rough day/night when there's no forecast to ask. */
-export function isDaytime(now: Date): boolean {
-  const h = now.getHours();
-  return h >= 6 && h < 18;
-}
 
 export function needsRefresh(saved: SavedSky | undefined, location: LatLng, now: Date): boolean {
   if (!saved) return true;
@@ -66,29 +70,43 @@ export function needsRefresh(saved: SavedSky | undefined, location: LatLng, now:
   return haversineMeters(saved.location, location) > SKY_MOVE_M;
 }
 
-export function skyToShow(saved: SavedSky | undefined, now: Date): SkyView {
+/** Sunrise and sunset happen when the sun's centre is this far below the horizon. */
+const SUN_UP = -0.833;
+
+/** The sky to draw: the weather (if recent) under the real time of day. */
+export function skyToShow(saved: SavedSky | undefined, now: Date, sun: SunState): SkyView {
+  const time = { isDay: sun.elevation > SUN_UP, phase: sun.phase, sun, moon: moonState(now.getTime()) };
   const age = saved ? now.getTime() - Date.parse(saved.fetchedAt) : Infinity;
-  if (!saved || age >= SKY_STALE_MS) return { condition: 'clear', isDay: isDaytime(now), known: false };
-  const { condition, isDay, temperatureC } = saved.weather;
-  return { condition, isDay, temperatureC, known: true, details: saved.weather };
+  if (!saved || age >= SKY_STALE_MS) return { condition: 'clear', ...time, known: false };
+  const { condition, temperatureC } = saved.weather;
+  return { condition, temperatureC, ...time, known: true, details: saved.weather };
 }
 
 /**
  * `?sky=storm` (and `&night=1`) shows any sky, for previews and design checks.
  * `&feels=38&uv=10&gust=60&rainAt=15` adds details, to preview precautions.
  */
-export function skyPreview(search: string, now = new Date()): Pick<SkyView, 'condition' | 'isDay' | 'details'> | null {
+export interface SkyPreview {
+  condition: SkyCondition;
+  /** show it at night: 11 PM where the sky is */
+  night?: boolean;
+  details?: CurrentWeather;
+}
+
+export function skyPreview(search: string, now = new Date()): SkyPreview | null {
   const params = new URLSearchParams(search);
   const sky = params.get('sky');
   if (!sky || !SKY_CONDITIONS.includes(sky as SkyCondition)) return null;
   const condition = sky as SkyCondition;
-  const isDay = params.get('night') !== '1';
+  const night = params.get('night') === '1';
+  const isDay = !night;
   const num = (k: string) => (params.has(k) && Number.isFinite(Number(params.get(k))) ? Number(params.get(k)) : undefined);
   const feels = num('feels');
   const uv = num('uv');
   const gust = num('gust');
   const rainAt = num('rainAt');
-  if (feels === undefined && uv === undefined && gust === undefined && rainAt === undefined) return { condition, isDay };
+  const base: SkyPreview = night ? { condition, night } : { condition };
+  if (feels === undefined && uv === undefined && gust === undefined && rainAt === undefined) return base;
   const upcoming =
     rainAt === undefined
       ? undefined
@@ -98,11 +116,7 @@ export function skyPreview(search: string, now = new Date()): Pick<SkyView, 'con
           t.setHours(t.getHours() + i);
           return { time: t.toISOString(), rainChance: t.getHours() >= rainAt ? 80 : 5, uvIndex: uv };
         });
-  return {
-    condition,
-    isDay,
-    details: { condition, isDay, feelsLikeC: feels, uvIndex: uv, gustKmh: gust, observedAt: now.toISOString(), upcoming },
-  };
+  return { ...base, details: { condition, isDay, feelsLikeC: feels, uvIndex: uv, gustKmh: gust, observedAt: now.toISOString(), upcoming } };
 }
 
 export async function fetchCurrentWeather(location: LatLng, timeoutMs = 6000): Promise<CurrentWeather | null> {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LatLng } from '@segue/engine';
 import { getItem, setItem } from './store';
+import { sunState } from './sunTimes';
 import { fetchCurrentWeather, needsRefresh, skyPreview, skyToShow, type SavedSky, type SkyView } from './weather';
 
 /** After a failed check, wait this long before asking again. */
@@ -47,7 +48,19 @@ export function useSky(location: LatLng, now: Date): SkyView {
     });
   }, [loaded, online, saved, location, now]);
 
-  const view = skyToShow(saved, now);
+  // The time of day comes from the clock on every tick, never from the saved weather.
+  const at = preview?.night ? lateEvening(now) : now;
+  const offset = -now.getTimezoneOffset();
+  const sun = sunState(at.getTime(), location.lat, location.lng, offset);
+  const view = skyToShow(saved, at, sun);
   // A preview keeps the real temperature but uses its own details, so precautions follow the preview.
-  return preview ? { ...view, details: undefined, ...preview, known: true, preview: true } : view;
+  if (!preview) return view;
+  return { ...view, condition: preview.condition, details: preview.details, known: true, preview: true };
+}
+
+/** 11 PM today on the device's clock, for `?night=1` previews. */
+function lateEvening(now: Date): Date {
+  const d = new Date(now);
+  d.setHours(23, 0, 0, 0);
+  return d;
 }

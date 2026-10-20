@@ -8,7 +8,7 @@ const at = (h: number) => new Date(2026, 9, 20, h, 0).toISOString();
 
 const sky = (w: Partial<CurrentWeather>): SkyView => {
   const details: CurrentWeather = { condition: 'clear', isDay: true, observedAt: morning.toISOString(), ...w };
-  return { condition: details.condition, isDay: details.isDay, known: true, details };
+  return { condition: details.condition, isDay: details.isDay, phase: details.isDay ? 'day' : 'night', known: true, details };
 };
 const kinds = (s: SkyView, mode: 'walk' | 'drive' | 'local' | 'transit' = 'walk', now = morning) => precautionsFor(s, { now, mode }).map((p) => p.kind);
 
@@ -69,6 +69,6 @@ describe('weather precautions', () => {
   });
 
   it('makes no claims when the weather is unknown', () => {
-    expect(precautionsFor({ condition: 'clear', isDay: true, known: false }, { now: morning, mode: 'walk' })).toEqual([]);
+    expect(precautionsFor({ condition: 'clear', isDay: true, phase: 'day', known: false }, { now: morning, mode: 'walk' })).toEqual([]);
   });
 });
