@@ -45,23 +45,111 @@ test.describe('the page takes on the sky', () => {
   });
 });
 
+const cors = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
+const MAKATI = { latitude: 14.5547, longitude: 121.0244 };
+const SYDNEY = { latitude: -33.8688, longitude: 151.2093 };
+
+/** A fake API: rain south of the equator, clear north of it, and a name for each area. Records what was asked. */
+async function fakeApi(page: Page) {
+  const asked: string[] = [];
+  await page.route('http://127.0.0.1:9/v1/weather/now**', (r) => {
+    const url = new URL(r.request().url());
+    asked.push(url.search);
+    const south = Number(url.searchParams.get('lat')) < 0;
+    const now = south
+      ? { condition: 'rain', isDay: true, temperatureC: 19, observedAt: '2026-10-20T13:00:00+11:00', utcOffsetMinutes: 660, timezone: 'Australia/Sydney' }
+      : { condition: 'clear', isDay: true, temperatureC: 31, observedAt: '2026-10-20T10:00:00+08:00', utcOffsetMinutes: 480, timezone: 'Asia/Manila' };
+    return r.fulfill({ headers: cors, body: JSON.stringify({ now }) });
+  });
+  await page.route('http://127.0.0.1:9/v1/place-name**', (r) => {
+    const south = Number(new URL(r.request().url()).searchParams.get('lat')) < 0;
+    return r.fulfill({ headers: cors, body: JSON.stringify({ name: south ? 'Sydney' : 'Urdaneta, Makati' }) });
+  });
+  return asked;
+}
+
+/**
+ * A user who turns location down. Headless Chromium leaves an unanswered
+ * request pending forever, so the answer is played here: the permission reads
+ * "prompt" and the request fails as denied, until `__blocked` is cleared.
+ */
+async function userSaysNo(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __blocked: boolean; __asked: number };
+    w.__blocked = true;
+    w.__asked = 0;
+    const geo = navigator.geolocation;
+    const realWatch = geo.watchPosition.bind(geo);
+    const realGet = geo.getCurrentPosition.bind(geo);
+    const realQuery = navigator.permissions.query.bind(navigator.permissions);
+    const denied = { code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: 'User denied Geolocation' };
+    geo.watchPosition = (ok, err, opts) => {
+      w.__asked++;
+      if (!w.__blocked) return realWatch(ok, err, opts);
+      setTimeout(() => err?.(denied as GeolocationPositionError), 50);
+      return -1;
+    };
+    geo.getCurrentPosition = (ok, err, opts) => {
+      if (!w.__blocked) return realGet(ok, err, opts);
+      setTimeout(() => err?.(denied as GeolocationPositionError), 50);
+    };
+    navigator.permissions.query = (d) =>
+      w.__blocked && d.name === 'geolocation'
+        ? Promise.resolve({ state: 'prompt', addEventListener() {}, removeEventListener() {} } as unknown as PermissionStatus)
+        : realQuery(d);
+  });
+}
+
 test.describe('where the sky is', () => {
-  test('says plainly when it is showing Manila instead of the user', async ({ page, context }) => {
-    await context.clearPermissions(); // location not allowed
-    await setUp(page, '/app?sky=clear', '2026-10-20T10:00:00+08:00');
-    await expect(page.locator('.where-button')).toHaveText('Showing Manila. Tap to use your location.');
-    await expect(page.locator('.precautions')).toHaveCount(0); // not the user's weather
+  test('the location drives the sky, with no button to press', async ({ page, context }) => {
+    await context.setGeolocation(MAKATI);
+    const asked = await fakeApi(page);
+    await setUp(page, '/app', '2026-10-20T10:00:00+08:00');
+    await expect(page.locator('.where-name')).toHaveText('Urdaneta, Makati');
+    await expect(page.locator('.condition')).toHaveText('Clear and sunny');
+    // only a rough area (about 1 km) leaves the phone
+    expect(asked[0]).toBe('?lat=14.55&lng=121.02');
+    // the pin is a status, and nothing asks the user to pick a place or a sky
+    await expect(page.locator('.where-button')).toHaveAttribute('role', 'status');
+    await expect(page.getByRole('button', { name: /use my location|update my location/i })).toHaveCount(0);
+
+    // moving far away brings that place's weather, name and clock
+    await context.setGeolocation(SYDNEY);
+    await expect(page.locator('.where-name')).toHaveText('Sydney');
+    await expect(page.locator('.condition')).toHaveText('Rain');
+    expect(asked).toContain('?lat=-33.87&lng=151.21');
   });
 
-  test("names the user's area beside the pin", async ({ page }) => {
-    await page.route('http://127.0.0.1:9/v1/place-name**', (r) =>
-      r.fulfill({ headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Urdaneta, Makati' }) }),
-    );
-    await setUp(page, '/app?sky=clear', '2026-10-20T10:00:00+08:00');
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('button', { name: /Use my location|Update my location/ }).click();
-    await page.getByRole('button', { name: 'Close' }).click();
-    await expect(page.locator('.where-button')).toHaveText('Urdaneta, Makati');
+  test('asks on its own, then says plainly when location is blocked', async ({ page }) => {
+    await userSaysNo(page);
+    await page.clock.setFixedTime(new Date('2026-10-20T10:00:00+08:00'));
+    await page.goto('/app?sky=clear');
+    // first-run setup says why, and the browser asks without a tap
+    await expect(page.locator('.ob-card')).toContainText('Segue uses where you are to match the sky and plan your day.');
+    await expect(page.locator('.ob-card')).toContainText("Allow location to match your sky. Open your browser's site settings, then reload.");
+    expect(await page.evaluate(() => (window as unknown as { __asked: number }).__asked)).toBeGreaterThan(0);
+    await page.getByRole('button', { name: /^Next/ }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Try an example day' }).click();
+    await expect(page.locator('.location-banner')).toHaveText("Allow location to match your sky. Open your browser's site settings, then reload.");
+    // the device's time zone stands in, and says so
+    await expect(page.locator('.where-name')).toHaveText('Manila');
+    await expect(page.locator('.where-button .where-note')).toHaveText('Using your time zone');
+    await expect(page.locator('.precautions')).toHaveCount(0); // not the user's own weather
+  });
+
+  test('picks up by itself once the user allows location', async ({ page }) => {
+    await userSaysNo(page);
+    await fakeApi(page);
+    await setUp(page, '/app', '2026-10-20T10:00:00+08:00');
+    await expect(page.locator('.location-banner')).toHaveText(/Allow location to match your sky/);
+    // the user allows it in site settings and comes back to the tab
+    await page.evaluate(() => {
+      (window as unknown as { __blocked: boolean }).__blocked = false;
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await expect(page.locator('.where-name')).toHaveText('Urdaneta, Makati');
+    await expect(page.locator('.location-banner')).toHaveCount(0);
   });
 });
 
