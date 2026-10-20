@@ -59,6 +59,8 @@ html {
 
 body {
   margin: 0;
+  /* the page follows the sky; colours ease over as the light changes */
+  transition: background-color 1.2s ease, color 1.2s ease;
   background: var(--fog);
   color: var(--ink);
   font-family: var(--font);
@@ -875,6 +877,9 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
   .sheet {
     animation: none;
   }

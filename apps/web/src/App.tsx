@@ -18,7 +18,7 @@ import { calendarBlockId } from './lib/calendar';
 import { clock } from './lib/format';
 import { firstName, forgetAccount, loadAccount, signUpWithGoogle, type Account } from './lib/account';
 import { GOOGLE_CLIENT_ID, calendarErrorMessage } from './lib/googleCalendar';
-import { useNow, usePersisted } from './lib/hooks';
+import { useNow, usePersisted, useSystemDark } from './lib/hooks';
 import { currentLocation, locate, locationPermission } from './lib/location';
 import {
   affinityFrom,
@@ -35,7 +35,9 @@ import {
   type StoredBlock,
 } from './lib/model';
 import { activeNudges, nudgesFor, type Nudge } from './lib/nudges';
+import { applyPageTheme, pageTheme } from './lib/pageTheme';
 import { precautionsFor } from './lib/precautions';
+import { toneAt } from './lib/skyRenderer';
 import { BUSY_BLOCK_ID, adjustFor, type ReplanReason } from './lib/replan';
 import { rerouteDay, type RerouteOutcome } from './lib/reroute';
 import { navigate, useRoute } from './lib/router';
@@ -96,6 +98,17 @@ export function App() {
   const notify = useCallback((text: string) => setToast({ text }), []);
   const cal = useCalendar(ready, notify);
   const sky = useSky(settings.lastLocation ?? DEFAULT_LOCATION, now);
+  const systemDark = useSystemDark();
+
+  // The page takes on the sky: dark under a night sky, warm at golden hour.
+  // An unknown sky leaves the CSS defaults (and prefers-color-scheme) alone.
+  const theme = useMemo(() => {
+    if (!sky.known) return null;
+    const tone = toneAt(sky.condition, sky.sun?.elevation ?? (sky.isDay ? 45 : -30), sky.sun?.morning ?? false);
+    return pageTheme(tone, sky.phase, systemDark);
+  }, [sky.known, sky.condition, sky.sun?.elevation, sky.sun?.morning, sky.isDay, sky.phase, systemDark]);
+  useEffect(() => applyPageTheme(theme), [theme]);
+  useEffect(() => () => applyPageTheme(null), []);
 
   // Load everything from the device first, so the app opens instantly offline.
   useEffect(() => {
