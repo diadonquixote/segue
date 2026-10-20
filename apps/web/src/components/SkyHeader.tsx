@@ -64,7 +64,14 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
   // As dark behind the text as this sky needs for AA, and no darker.
   const contrastVars = { '--scrim': String(headerScrim(tone)), '--chip': String(CHIP_ALPHA) } as CSSProperties;
 
-  // Tint the phone's status bar to match the sky.
+  // Back to the neutral default from index.html when the header goes away.
+  // (Declared first, so it reads the neutral colour before the sky's is set.)
+  useEffect(() => {
+    const metas = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')];
+    const neutral = metas.map((m) => m.getAttribute('content'));
+    return () => metas.forEach((m, i) => m.setAttribute('content', neutral[i] ?? ''));
+  }, []);
+  // Tint the phone's status bar to match the sky and time of day.
   useEffect(() => {
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', top));
   }, [top]);

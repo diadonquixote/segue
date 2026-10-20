@@ -25,6 +25,8 @@ test.describe('the page takes on the sky', () => {
     await setUp(page, '/app?sky=clear', '2026-10-20T21:00:00+08:00');
     await expect(page.locator('html')).toHaveAttribute('data-sky-theme', 'dark');
     await expect.poll(async () => lightness(await background(page))).toBeLessThan(0.15);
+    // the status bar matches the top of the night sky
+    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#050918');
   });
 
   test('light and sky-tinted at noon', async ({ page }) => {
@@ -33,6 +35,13 @@ test.describe('the page takes on the sky', () => {
     await expect.poll(async () => lightness(await background(page))).toBeGreaterThan(0.8);
     const [r, , b] = await background(page);
     expect(b).toBeGreaterThan(r); // a little blue from the sky
+    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#1c5fb8');
+  });
+
+  test('the status bar starts neutral, before the app knows the sky', async ({ page }) => {
+    await page.route('**/src/main.tsx', (r) => r.abort()); // the page before any script runs
+    await page.goto('/app');
+    await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#f2f4f8');
   });
 });
 
@@ -54,4 +63,15 @@ test.describe('where the sky is', () => {
     await page.getByRole('button', { name: 'Close' }).click();
     await expect(page.locator('.where-button')).toHaveText('Urdaneta, Makati');
   });
+});
+
+test('the status bar goes back to neutral on the landing page', async ({ page }) => {
+  await setUp(page, '/app?sky=clear', '2026-10-20T21:00:00+08:00');
+  await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#050918');
+  await page.evaluate(() => {
+    history.pushState(null, '', '/');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  await expect(page.locator('.lp-hero')).toBeVisible();
+  await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#f2f4f8');
 });
