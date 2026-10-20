@@ -62,6 +62,14 @@ describe('weather precautions', () => {
     expect(kinds(sky({ condition: 'heavy-rain', uvIndex: 7 }))).not.toContain('sun');
   });
 
+  it('says to take care in fog, in words that fit how you travel', () => {
+    const drive = precautionsFor(sky({ condition: 'fog' }), { now: morning, mode: 'drive' });
+    expect(drive[0]).toMatchObject({ kind: 'fog', title: 'Drive slowly in the fog' });
+    expect(drive[0]!.body).toContain('low-beam');
+    expect(precautionsFor(sky({ condition: 'fog' }), { now: morning, mode: 'walk' })[0]!.title).toBe('Take care in the fog');
+    expect(kinds(sky({ condition: 'partly-cloudy', feelsLikeC: 26 }))).toEqual([]);
+  });
+
   it('covers wind and cold, and never shows more than four', () => {
     expect(kinds(sky({ gustKmh: 62 }))).toEqual(['wind']);
     expect(kinds(sky({ feelsLikeC: 9, isDay: true }))).toEqual(['cold']);

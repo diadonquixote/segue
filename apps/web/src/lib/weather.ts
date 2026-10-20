@@ -6,9 +6,9 @@ import { haversineMeters, type LatLng } from '@segue/engine';
 import { API_URL } from './reroute';
 import { moonState, type DayPhase, type MoonState, type SunState } from './sunTimes';
 
-/** Mirrors SkyCondition / CurrentWeather in @segue/providers (the app doesn't depend on that package). */
-export type SkyCondition = 'clear' | 'cloudy' | 'rain' | 'heavy-rain' | 'storm';
-export const SKY_CONDITIONS: readonly SkyCondition[] = ['clear', 'cloudy', 'rain', 'heavy-rain', 'storm'];
+/** Mirrors SkyCondition / CurrentWeather in @segue/providers and the wire schema in @segue/schemas (keep all three in step). */
+export type SkyCondition = 'clear' | 'partly-cloudy' | 'cloudy' | 'fog' | 'rain' | 'heavy-rain' | 'storm';
+export const SKY_CONDITIONS: readonly SkyCondition[] = ['clear', 'partly-cloudy', 'cloudy', 'fog', 'rain', 'heavy-rain', 'storm'];
 
 export interface CurrentWeather {
   condition: SkyCondition;
@@ -41,6 +41,10 @@ export interface SkyView {
   phase: DayPhase;
   sun?: SunState;
   moon?: MoonState;
+  /** where the moon is on its path, 0 rising → 1 setting */
+  moonPath?: number;
+  /** the sky is south of the equator */
+  southern?: boolean;
   temperatureC?: number;
   known: boolean;
   preview?: boolean;
@@ -55,9 +59,12 @@ export const SKY_STALE_MS = 3 * 60 * 60_000;
 /** Moving further than this asks for the sky again. */
 const SKY_MOVE_M = 3000;
 
-export const SKY_COPY: Record<SkyCondition, { day: string; night: string; hint: string }> = {
-  clear: { day: 'Clear and sunny', night: 'Clear night', hint: 'Good weather for anything outdoors.' },
-  cloudy: { day: 'Cloudy', night: 'Cloudy night', hint: 'Grey but dry for now.' },
+/** `twilight` is used at dawn and dusk, when the sun is just below the horizon. */
+export const SKY_COPY: Record<SkyCondition, { day: string; night: string; twilight?: string; hint: string }> = {
+  clear: { day: 'Clear and sunny', night: 'Clear night', twilight: 'Clear sky', hint: 'Good weather for anything outdoors.' },
+  'partly-cloudy': { day: 'Partly cloudy', night: 'Partly cloudy', hint: 'Sun and cloud, dry for now.' },
+  cloudy: { day: 'Cloudy', night: 'Cloudy night', twilight: 'Cloudy', hint: 'Grey but dry for now.' },
+  fog: { day: 'Foggy', night: 'Foggy', hint: "It's hard to see far. Allow extra time on the road." },
   rain: { day: 'Rain', night: 'Rain', hint: 'Outdoor blocks may move indoors when you re-route.' },
   'heavy-rain': { day: 'Heavy rain', night: 'Heavy rain', hint: 'Allow extra travel time. Outdoor blocks may move indoors.' },
   storm: { day: 'Thunderstorm', night: 'Thunderstorm', hint: 'Stay indoors if you can. Re-route to keep the day dry.' },
@@ -134,4 +141,11 @@ export async function fetchCurrentWeather(location: LatLng, timeoutMs = 6000): P
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The weather in words for the time of day: "Clear and sunny", "Clear sky" at dusk, "Clear night". */
+export function skyWords(sky: Pick<SkyView, 'condition' | 'isDay' | 'phase'>): string {
+  const copy = SKY_COPY[sky.condition];
+  if (sky.phase === 'dawn' || sky.phase === 'dusk') return copy.twilight ?? copy.night;
+  return sky.isDay ? copy.day : copy.night;
 }

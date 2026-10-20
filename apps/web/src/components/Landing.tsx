@@ -7,12 +7,14 @@ import { REASONS } from '../lib/replan';
 import type { SkyCondition } from '../lib/weather';
 import { GoogleButton } from './GoogleButton';
 import { EXAMPLES } from './QuickAdd';
-import { Sky } from './Sky';
+import { Sky, sceneFor } from './Sky';
 import '../landing.css';
 
 const SKIES: { id: SkyCondition; label: string }[] = [
   { id: 'clear', label: 'Sunny' },
+  { id: 'partly-cloudy', label: 'Partly cloudy' },
   { id: 'cloudy', label: 'Cloudy' },
+  { id: 'fog', label: 'Fog' },
   { id: 'rain', label: 'Rain' },
   { id: 'heavy-rain', label: 'Heavy rain' },
   { id: 'storm', label: 'Storm' },
@@ -88,7 +90,17 @@ function PhoneMock({ condition }: { condition: SkyCondition }) {
     <div className="lp-phone" aria-hidden="true">
       <div className={`lp-phone-sky ${condition}`}>
         <img src="/wordmark-light.svg" alt="" />
-        <span>{wet ? '26° · Rain' : condition === 'cloudy' ? '28° · Cloudy' : '31° · Clear and sunny'}</span>
+        <span>
+          {wet
+            ? '26° · Rain'
+            : condition === 'cloudy'
+              ? '28° · Cloudy'
+              : condition === 'fog'
+                ? '24° · Foggy'
+                : condition === 'partly-cloudy'
+                  ? '30° · Partly cloudy'
+                  : '31° · Clear and sunny'}
+        </span>
       </div>
       <div className="lp-phone-body">
         <div className="lp-phone-input">Add something… e.g. Gym 1h after 5pm</div>
@@ -248,7 +260,7 @@ export function Landing() {
     <div className="landing">
       <header className="lp-hero">
         {/* Always the daytime sky here, so the chips match what you see. */}
-        <Sky condition={sky} isDay />
+        <Sky scene={sceneFor({ condition: sky })} />
         <nav className="lp-nav" aria-label="Segue">
           <a href="/" className="lp-logo">
             <img src="/wordmark-light.svg" alt="Segue" />

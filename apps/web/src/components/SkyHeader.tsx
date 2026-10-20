@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { longDate } from '../lib/format';
-import { SKY_LOOK } from '../lib/skyRenderer';
-import { SKY_COPY, type SkyView } from '../lib/weather';
-import { Sky } from './Sky';
+import { toneAt } from '../lib/skyRenderer';
+import { skyWords, type SkyView } from '../lib/weather';
+import { Sky, sceneFor } from './Sky';
 
 export type View = 'today' | 'plan' | 'routines';
 
@@ -51,8 +51,13 @@ function GearIcon() {
 const temp = (c: number, unit: 'C' | 'F') => `${Math.round(unit === 'F' ? (c * 9) / 5 + 32 : c)}°`;
 
 export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettings, tempUnit, showNav = true }: Props) {
-  const copy = SKY_COPY[sky.condition];
-  const top = SKY_LOOK[sky.condition][sky.isDay ? 'day' : 'night'].sky[0];
+  // A new scene object only when something the renderer draws has changed.
+  const scene = useMemo(
+    () => sceneFor(sky),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sky.condition, sky.sun?.elevation, sky.sun?.morning, sky.sun?.progress, sky.moon?.cycle, sky.moonPath, sky.southern],
+  );
+  const top = toneAt(scene.condition, scene.elevation, scene.morning).sky[0];
 
   // Tint the phone's status bar to match the sky.
   useEffect(() => {
@@ -63,7 +68,7 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
 
   return (
     <header className="sky-band">
-      <Sky condition={sky.condition} isDay={sky.isDay} />
+      <Sky scene={scene} />
       <div className="sky-content">
         <div className="top">
           <div className="brand">
@@ -98,7 +103,7 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
               <>
                 {sky.temperatureC !== undefined && <span className="temp">{temp(sky.temperatureC, tempUnit)}</span>}
                 <span className="condition">
-                  {sky.isDay ? copy.day : copy.night}
+                  {skyWords(sky)}
                   {sky.details?.feelsLikeC !== undefined &&
                     (sky.temperatureC === undefined || Math.abs(sky.details.feelsLikeC - sky.temperatureC) >= 2) && (
                       <span className="feels"> · feels {temp(sky.details.feelsLikeC, tempUnit)}</span>

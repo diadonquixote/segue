@@ -199,6 +199,9 @@
   font-weight: 650;
   background: linear-gradient(#1c5fb8, #6aa6e2);
 }
+.lp-phone-sky.fog {
+  background: linear-gradient(#8f99a8, #c3cad4);
+}
 .lp-phone-sky.cloudy {
   background: linear-gradient(#5b6780, #9aa6b8);
 }

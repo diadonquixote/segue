@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { reroute } from '@segue/engine';
 import type { Place } from '@segue/engine';
 import type { PlacesProvider, WeatherProvider } from '@segue/providers';
-import { NearbyQuerySchema, RerouteRequestSchema, UnderstandRequestSchema, formatIssues } from '@segue/schemas';
+import { CurrentWeatherSchema, NearbyQuerySchema, RerouteRequestSchema, UnderstandRequestSchema, formatIssues } from '@segue/schemas';
 import { gatherCandidates } from './candidates';
 import type { Config } from './config';
 import { RateLimiter } from './rateLimit';
@@ -124,7 +124,8 @@ export function createApp(deps: AppDeps) {
     if (method === 'GET' && url.pathname === '/v1/weather/now') {
       const { lat, lng } = latLngQuery(url);
       try {
-        return { status: 200, body: { now: await deps.weather.current({ lat, lng }) } };
+        // Checked against the wire schema, so the app never gets a sky it can't draw.
+        return { status: 200, body: { now: CurrentWeatherSchema.parse(await deps.weather.current({ lat, lng })) } };
       } catch (e) {
         log(`current weather failed: ${(e as Error).message}`);
         throw new HttpError(503, 'Weather is unavailable right now');

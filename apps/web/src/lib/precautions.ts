@@ -10,7 +10,7 @@ import type { TravelMode } from '@segue/engine';
 import { clock } from './format';
 import type { CurrentWeather, SkyView } from './weather';
 
-export type PrecautionKind = 'storm' | 'flood' | 'drive' | 'umbrella' | 'heat' | 'sun' | 'wind' | 'cold';
+export type PrecautionKind = 'storm' | 'flood' | 'drive' | 'fog' | 'umbrella' | 'heat' | 'sun' | 'wind' | 'cold';
 
 export interface Precaution {
   kind: PrecautionKind;
@@ -98,6 +98,18 @@ export function precautionsFor(sky: SkyView, ctx: { now: Date; mode: TravelMode 
     });
   } else if (w.condition === 'rain' && mode === 'drive') {
     out.push({ kind: 'drive', level: 'info', title: 'Drive safely', body: 'Wet roads: drive a little slower and keep more distance.' });
+  }
+
+  if (w.condition === 'fog') {
+    out.push({
+      kind: 'fog',
+      level: 'warn',
+      title: mode === 'drive' ? 'Drive slowly in the fog' : 'Take care in the fog',
+      body:
+        mode === 'drive'
+          ? "It's hard to see far. Use low-beam headlights, slow down and leave a long gap."
+          : "It's hard to see far, and drivers can't see you well either. Allow extra time and cross roads with care.",
+    });
   }
 
   // Umbrella: raining now, or likely later today.

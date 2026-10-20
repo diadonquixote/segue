@@ -2,14 +2,18 @@ import type { LatLng, WeatherHour } from '@segue/engine';
 import { ProviderError, fetchWithTimeout, type CurrentWeather, type FetchFn, type SkyCondition, type UpcomingHour, type WeatherProvider } from './types';
 
 /**
- * WMO weather code (as Open-Meteo reports it) → one of the five skies.
- * Partly cloudy still counts as clear: the sun is out. Snow and fog read as cloudy.
+ * WMO weather code (as Open-Meteo reports it) → one of the skies.
+ * 0–1 clear (1 is "mainly clear"), 2 partly cloudy, 3 overcast, 45/48 fog
+ * (48 is rime fog), drizzle and rain by intensity, 95+ thunderstorm.
+ * Snow reads as cloudy: it's rare where Segue is used and has no sky of its own yet.
  */
 export function skyFromWmo(code: number, precipitationMm = 0): SkyCondition {
   if (code >= 95) return 'storm';
   const wet = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
   if (wet) return code === 65 || code === 67 || code === 82 || precipitationMm >= 4 ? 'heavy-rain' : 'rain';
-  return code <= 2 ? 'clear' : 'cloudy';
+  if (code === 45 || code === 48) return 'fog';
+  if (code === 2) return 'partly-cloudy';
+  return code <= 1 ? 'clear' : 'cloudy';
 }
 
 /** Open-Meteo: free, keyless hourly forecast. */

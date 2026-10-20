@@ -234,9 +234,11 @@ describe('Open-Meteo', () => {
 describe('skyFromWmo', () => {
   it.each([
     [0, 0, 'clear'],
-    [2, 0, 'clear'],
+    [1, 0, 'clear'],
+    [2, 0, 'partly-cloudy'],
     [3, 0, 'cloudy'],
-    [45, 0, 'cloudy'],
+    [45, 0, 'fog'],
+    [48, 0, 'fog'],
     [73, 0, 'cloudy'],
     [51, 0.2, 'rain'],
     [61, 1, 'rain'],

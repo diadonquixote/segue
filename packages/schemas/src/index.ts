@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import type { Block, Context, LatLng, OpeningHours, Place, Plan } from '@segue/engine';
+import type { CurrentWeather, SkyCondition } from '@segue/providers';
 
 const isoTimestamp = z
   .string()
@@ -133,6 +134,33 @@ export const NearbyQuerySchema = z.object({
 export type RerouteRequest = z.infer<typeof RerouteRequestSchema>;
 export type NearbyQuery = z.infer<typeof NearbyQuerySchema>;
 export type SearchableCategory = z.infer<typeof SearchableCategorySchema>;
+
+/** The skies the app can draw; keep in step with SkyCondition in packages/providers and SKY_CONDITIONS in apps/web. */
+export const SKY_CONDITION_VALUES = ['clear', 'partly-cloudy', 'cloudy', 'fog', 'rain', 'heavy-rain', 'storm'] as const;
+export const SkyConditionSchema = z.enum(SKY_CONDITION_VALUES) satisfies z.ZodType<SkyCondition>;
+
+/** The body of GET /v1/weather/now. */
+export const CurrentWeatherSchema = z.object({
+  condition: SkyConditionSchema,
+  isDay: z.boolean(),
+  temperatureC: z.number().optional(),
+  feelsLikeC: z.number().optional(),
+  uvIndex: z.number().min(0).optional(),
+  gustKmh: z.number().min(0).optional(),
+  precipitationMm: z.number().min(0).optional(),
+  observedAt: isoTimestamp,
+  upcoming: z
+    .array(
+      z.object({
+        time: isoTimestamp,
+        rainChance: z.number().min(0).max(100),
+        uvIndex: z.number().min(0).optional(),
+        feelsLikeC: z.number().optional(),
+      }),
+    )
+    .max(48)
+    .optional(),
+}) satisfies z.ZodType<CurrentWeather>;
 
 /** Flatten a ZodError into `path: message` lines for API error responses. */
 export function formatIssues(error: z.ZodError): string[] {

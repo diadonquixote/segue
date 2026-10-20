@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LatLng } from '@segue/engine';
 import { getItem, setItem } from './store';
-import { sunState } from './sunTimes';
+import { moonProgress, sunState } from './sunTimes';
 import { fetchCurrentWeather, needsRefresh, skyPreview, skyToShow, type SavedSky, type SkyView } from './weather';
 
 /** After a failed check, wait this long before asking again. */
@@ -52,7 +52,11 @@ export function useSky(location: LatLng, now: Date): SkyView {
   const at = preview?.night ? lateEvening(now) : now;
   const offset = -now.getTimezoneOffset();
   const sun = sunState(at.getTime(), location.lat, location.lng, offset);
-  const view = skyToShow(saved, at, sun);
+  const view: SkyView = {
+    ...skyToShow(saved, at, sun),
+    moonPath: moonProgress(at.getTime(), sun.times.solarNoon),
+    southern: location.lat < 0,
+  };
   // A preview keeps the real temperature but uses its own details, so precautions follow the preview.
   if (!preview) return view;
   return { ...view, condition: preview.condition, details: preview.details, known: true, preview: true };
