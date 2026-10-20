@@ -2,16 +2,18 @@ import { useState, type ReactNode } from 'react';
 import type { TravelMode } from '@segue/engine';
 import { clock } from '../lib/format';
 import { MODE_LABEL, type FavoritePlace, type Settings } from '../lib/model';
-import { DEFAULT_PLACE_NAME } from '../lib/seed';
 import { notificationsSupported } from '../lib/useReminders';
 import { Segmented, Sheet } from './Sheet';
-import type { LocationStatus } from './SkyHeader';
+import { LOCATION_BLOCKED, LOCATION_UNSUPPORTED, LOCATION_WHY, type LocationStatus } from '../lib/locationStatus';
 
 interface Props {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
   location: LocationStatus;
-  onLocate: () => void;
+  /** the browser can't share a location at all */
+  locationUnsupported?: boolean;
+  /** time of the last real position */
+  locatedAt?: string;
   favorites: FavoritePlace[];
   onRemoveFavorite: (id: string) => void;
   onToggleReminders: (on: boolean) => void;
@@ -51,16 +53,18 @@ export function SettingsSheet(props: Props) {
 
         <section className="settings-group">
           <h3 className="section-title">Location</h3>
-          <p className="muted small">
-            {location.kind === 'located'
-              ? `Using your location${location.name ? ` near ${location.name}` : ''}${location.at ? `, updated ${clock(location.at)}` : ''}.`
-              : location.kind === 'denied'
-                ? "Location is blocked for Segue. Allow it in your browser's site settings, then tap below."
-                : `Showing ${DEFAULT_PLACE_NAME} until Segue knows where you are. The weather and places there may not be yours.`}
+          <p className="muted small" role="status">
+            {location.source === 'here'
+              ? `Your sky follows where you are${location.label === 'Near you' ? '' : `, now ${location.label}`}${props.locatedAt ? `, checked ${clock(props.locatedAt)}` : ''}.`
+              : location.source === 'finding'
+                ? 'Finding you…'
+                : props.locationUnsupported
+                  ? LOCATION_UNSUPPORTED
+                  : location.blocked
+                    ? LOCATION_BLOCKED
+                    : `${location.label}${location.note ? ` · ${location.note}` : ''}. Segue keeps trying to find you.`}
           </p>
-          <button type="button" className="ghost" onClick={props.onLocate} disabled={location.kind === 'locating'}>
-            {location.kind === 'locating' ? 'Finding you…' : location.kind === 'located' ? 'Update my location' : 'Use my location'}
-          </button>
+          <p className="muted small">{LOCATION_WHY}</p>
         </section>
 
         <section className="settings-group">

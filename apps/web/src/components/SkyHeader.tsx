@@ -2,17 +2,11 @@ import { useEffect, useMemo, type CSSProperties } from 'react';
 import { longDate } from '../lib/format';
 import { CHIP_ALPHA, headerScrim } from '../lib/pageTheme';
 import { toneAt } from '../lib/skyRenderer';
+import type { LocationStatus } from '../lib/locationStatus';
 import { skyWords, type SkyView } from '../lib/weather';
-import { DEFAULT_PLACE_NAME } from '../lib/seed';
 import { Sky, sceneFor } from './Sky';
 
 export type View = 'today' | 'plan' | 'routines';
-
-export type LocationStatus =
-  | { kind: 'located'; at?: string; name?: string }
-  | { kind: 'default' }
-  | { kind: 'denied' }
-  | { kind: 'locating' };
 
 interface Props {
   sky: SkyView;
@@ -20,7 +14,6 @@ interface Props {
   view: View;
   onView: (v: View) => void;
   location: LocationStatus;
-  onLocate: () => void;
   onSettings: () => void;
   tempUnit: 'C' | 'F';
   /** first-run setup hides the tabs */
@@ -50,9 +43,13 @@ function GearIcon() {
   );
 }
 
+/** What a screen reader hears for the pin. */
+const pinLabel = (l: LocationStatus) =>
+  l.source === 'finding' ? 'Finding your location' : `Sky for ${l.label}${l.note ? `. ${l.note}` : ''}`;
+
 const temp = (c: number, unit: 'C' | 'F') => `${Math.round(unit === 'F' ? (c * 9) / 5 + 32 : c)}°`;
 
-export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettings, tempUnit, showNav = true }: Props) {
+export function SkyHeader({ sky, now, view, onView, location, onSettings, tempUnit, showNav = true }: Props) {
   // A new scene object only when something the renderer draws has changed.
   const scene = useMemo(
     () => sceneFor(sky),
@@ -75,13 +72,6 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
   useEffect(() => {
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', top));
   }, [top]);
-
-  const where =
-    location.kind === 'located'
-      ? (location.name ?? 'Your location')
-      : location.kind === 'locating'
-        ? 'Finding you…'
-        : `Showing ${DEFAULT_PLACE_NAME}. Tap to use your location.`;
 
   return (
     <header className="sky-band" style={contrastVars}>
@@ -132,17 +122,12 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
               <span className="condition">No weather right now</span>
             )}
           </span>
-          <button
-            type="button"
-            className={`where-button${location.kind === 'located' ? ' on' : location.kind === 'locating' ? '' : ' stand-in'}`}
-            onClick={onLocate}
-            disabled={location.kind === 'locating'}
-            aria-label={location.kind === 'located' ? `Update your location${location.name ? `, now ${location.name}` : ''}` : undefined}
-            title={location.kind === 'denied' ? "Location is blocked. Allow it in your browser's site settings." : undefined}
-          >
+          {/* Where the sky is. A status, not a control: Segue finds the location on its own. */}
+          <p className={`where-button${location.source === 'here' ? ' on' : ' stand-in'}`} role="status" aria-label={pinLabel(location)}>
             <PinIcon />
-            {where}
-          </button>
+            <span className="where-name">{location.label}</span>
+            {location.note && <span className="where-note">{location.note}</span>}
+          </p>
         </div>
       </div>
     </header>

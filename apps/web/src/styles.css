@@ -276,15 +276,24 @@ textarea {
   color: #fff;
   font-size: var(--step--1);
   font-weight: 600;
-  cursor: pointer;
   text-shadow: none;
+  margin: 0;
+  flex-wrap: wrap;
+  line-height: 1.25;
+}
+.where-name {
+  font-weight: 650;
+}
+.where-button .where-note {
+  font-weight: 500;
+  opacity: 0.85;
+}
+.where-button .where-note::before {
+  content: '· ';
 }
 
-/* a stand-in place: say so plainly, and invite a tap */
+/* not the user's own position (last known area, time zone): say so plainly */
 .where-button.stand-in {
-  white-space: normal;
-  text-align: left;
-  line-height: 1.25;
   padding-top: 6px;
   padding-bottom: 6px;
   border-style: dashed;
@@ -293,8 +302,15 @@ textarea {
   border-color: transparent;
 }
 
-.where-button:disabled {
-  cursor: progress;
+/* why Segue wants the location, or how to allow it */
+.location-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.location-banner svg {
+  flex: none;
+  margin-top: 2px;
 }
 
 /* ---------- the sky itself (drawn on a canvas, see lib/skyRenderer.ts) ---------- */
