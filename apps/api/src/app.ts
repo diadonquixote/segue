@@ -69,6 +69,14 @@ function latLngQuery(url: URL): { lat: number; lng: number } {
   return { lat: lat!, lng: lng! };
 }
 
+/**
+ * About 1 km. The sky and the place name never need more, so the server rounds
+ * too, even if a client sends an exact position. Nothing about it is stored.
+ */
+function coarse({ lat, lng }: { lat: number; lng: number }): { lat: number; lng: number } {
+  return { lat: Math.round(lat * 100) / 100, lng: Math.round(lng * 100) / 100 };
+}
+
 /** Add the user's saved places to each block that needs that kind of place. */
 function withFavorites(candidates: Record<string, Place[]>, blocks: { id: string; category: string; fixed?: unknown }[], favorites: Place[] = []) {
   if (!favorites.length) return candidates;
@@ -124,7 +132,7 @@ export function createApp(deps: AppDeps) {
     }
 
     if (method === 'GET' && url.pathname === '/v1/weather/now') {
-      const { lat, lng } = latLngQuery(url);
+      const { lat, lng } = coarse(latLngQuery(url));
       try {
         // Checked against the wire schema, so the app never gets a sky it can't draw.
         return { status: 200, body: { now: CurrentWeatherSchema.parse(await deps.weather.current({ lat, lng })) } };
@@ -135,7 +143,7 @@ export function createApp(deps: AppDeps) {
     }
 
     if (method === 'GET' && url.pathname === '/v1/place-name') {
-      const { lat, lng } = latLngQuery(url);
+      const { lat, lng } = coarse(latLngQuery(url));
       if (!deps.geocoder) return { status: 200, body: { name: null } };
       try {
         return { status: 200, body: { name: await deps.geocoder.placeName({ lat, lng }) } };

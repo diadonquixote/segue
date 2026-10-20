@@ -5,10 +5,14 @@ import { MockPlacesProvider, type WeatherProvider } from '@segue/providers';
 import { createApp } from '../src/app';
 import { tidyBlocks } from '../src/understand';
 
+/** Every position the fake providers were asked about. */
+const asked: { lat: number; lng: number }[] = [];
+
 const weather: WeatherProvider = {
   name: 'fake',
   forecast: async () => [{ time: '2026-10-19T06:00:00Z', precipitationProbability: 10 }],
-  current: async ({ lat }) => {
+  current: async ({ lat, lng }) => {
+    asked.push({ lat, lng });
     if (lat > 80) throw new Error('upstream down');
     return { condition: 'storm', isDay: true, temperatureC: 25, observedAt: '2026-10-19T06:00:00Z' };
   },
@@ -37,7 +41,13 @@ beforeAll(async () => {
       config: { corsOrigins: ['http://localhost:5173'], rerouteRateLimit: 5 },
       places: new MockPlacesProvider(),
       weather,
-      geocoder: { name: 'fake', placeName: async ({ lat }) => (lat > 80 ? null : 'Poblacion, Makati') },
+      geocoder: {
+        name: 'fake',
+        placeName: async ({ lat, lng }) => {
+          asked.push({ lat, lng });
+          return lat > 80 ? null : 'Poblacion, Makati';
+        },
+      },
       log: () => {},
     }),
   );
@@ -134,6 +144,16 @@ describe('API', () => {
     const res = await fetch(`${base}/v1/weather/now?lat=14.6&lng=121`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ now: { condition: 'storm', isDay: true, temperatureC: 25, observedAt: '2026-10-19T06:00:00Z' } });
+  });
+
+  it('rounds the position to about 1 km before asking for the sky or a place name', async () => {
+    asked.length = 0;
+    await fetch(`${base}/v1/weather/now?lat=14.554712&lng=121.024438`);
+    await fetch(`${base}/v1/place-name?lat=14.554712&lng=121.024438`);
+    expect(asked).toEqual([
+      { lat: 14.55, lng: 121.02 },
+      { lat: 14.55, lng: 121.02 },
+    ]);
   });
 
   it('says plainly when the current sky is unavailable', async () => {
