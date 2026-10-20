@@ -57,6 +57,8 @@ export interface SkyView {
   preview?: boolean;
   /** feels-like, UV, wind and the next hours, when known: what precautions are based on */
   details?: CurrentWeather;
+  /** when the weather shown was fetched, for "Updated 25 min ago" */
+  fetchedAt?: string;
 }
 
 /** Check the sky again this often while the app is open. */
@@ -64,7 +66,7 @@ export const SKY_REFRESH_MS = 20 * 60_000;
 /** Older than this, a saved sky is no longer "now". */
 export const SKY_STALE_MS = 3 * 60 * 60_000;
 /** Moving further than this asks for the sky again. */
-const SKY_MOVE_M = 3000;
+export const SKY_MOVE_M = 3000;
 
 /** `twilight` is used at dawn and dusk, when the sun is just below the horizon. */
 export const SKY_COPY: Record<SkyCondition, { day: string; night: string; twilight?: string; hint: string }> = {
@@ -97,7 +99,7 @@ export function skyToShow(saved: SavedSky | undefined, now: Date, sun: SunState,
   const age = saved ? now.getTime() - Date.parse(saved.fetchedAt) : Infinity;
   if (!saved || age >= SKY_STALE_MS) return { condition: 'clear', ...time, known: false };
   const { condition, temperatureC } = saved.weather;
-  return { condition, temperatureC, ...time, known: true, details: saved.weather };
+  return { condition, temperatureC, ...time, known: true, details: saved.weather, fetchedAt: saved.fetchedAt };
 }
 
 /**
@@ -140,7 +142,17 @@ export function previewMoment(now: Date, minutes: number, offsetMin: number): Da
   return new Date(midnight + (minutes - offsetMin) * 60_000);
 }
 
-export function skyPreview(search: string, now = new Date()): SkyPreview | null {
+/**
+ * Previews fake the sky, so they only work while developing, or in a build
+ * made with VITE_ENABLE_SKY_PREVIEW=true (for design reviews). A normal
+ * production build ignores ?sky= and the rest.
+ */
+export function skyPreviewEnabled(env: { DEV?: boolean; VITE_ENABLE_SKY_PREVIEW?: string } = import.meta.env ?? {}): boolean {
+  return env.DEV === true || env.VITE_ENABLE_SKY_PREVIEW === 'true';
+}
+
+export function skyPreview(search: string, now = new Date(), enabled = skyPreviewEnabled()): SkyPreview | null {
+  if (!enabled) return null;
   const params = new URLSearchParams(search);
   const sky = params.get('sky');
   if (!sky || !SKY_CONDITIONS.includes(sky as SkyCondition)) return null;
@@ -175,7 +187,7 @@ export function skyPreview(search: string, now = new Date()): SkyPreview | null 
 
 export async function fetchCurrentWeather(location: LatLng, timeoutMs = 6000): Promise<CurrentWeather | null> {
   // About 1 km is plenty for weather, and the exact position stays on the phone.
-  const params = new URLSearchParams({ lat: location.lat.toFixed(2), lng: location.lng.toFixed(2) });
+  const params = weatherQuery(location);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -188,6 +200,11 @@ export async function fetchCurrentWeather(location: LatLng, timeoutMs = 6000): P
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** What a weather request carries: the position rounded to about 1 km, never the exact fix. */
+export function weatherQuery(location: LatLng): URLSearchParams {
+  return new URLSearchParams({ lat: location.lat.toFixed(2), lng: location.lng.toFixed(2) });
 }
 
 /** The weather in words for the time of day: "Clear and sunny", "Clear sky" at dusk, "Clear night". */
