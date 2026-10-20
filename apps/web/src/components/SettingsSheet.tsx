@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react';
 import type { TravelMode } from '@segue/engine';
 import { clock } from '../lib/format';
 import { MODE_LABEL, type FavoritePlace, type Settings } from '../lib/model';
+import { DEFAULT_PLACE_NAME } from '../lib/seed';
 import { notificationsSupported } from '../lib/useReminders';
 import { Segmented, Sheet } from './Sheet';
 import type { LocationStatus } from './SkyHeader';
@@ -52,10 +53,10 @@ export function SettingsSheet(props: Props) {
           <h3 className="section-title">Location</h3>
           <p className="muted small">
             {location.kind === 'located'
-              ? `Using your location${location.at ? `, updated ${clock(location.at)}` : ''}.`
+              ? `Using your location${location.name ? ` near ${location.name}` : ''}${location.at ? `, updated ${clock(location.at)}` : ''}.`
               : location.kind === 'denied'
                 ? "Location is blocked for Segue. Allow it in your browser's site settings, then tap below."
-                : 'Segue plans from Metro Manila until it knows where you are.'}
+                : `Showing ${DEFAULT_PLACE_NAME} until Segue knows where you are. The weather and places there may not be yours.`}
           </p>
           <button type="button" className="ghost" onClick={props.onLocate} disabled={location.kind === 'locating'}>
             {location.kind === 'locating' ? 'Finding you…' : location.kind === 'located' ? 'Update my location' : 'Use my location'}

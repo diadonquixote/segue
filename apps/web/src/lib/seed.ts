@@ -72,3 +72,5 @@ export const DEFAULT_SETTINGS: Settings = {
 
 /** Used only when the browser can't share a location and none is saved. Metro Manila. */
 export const DEFAULT_LOCATION = { lat: 14.5995, lng: 120.9842 };
+/** What to call DEFAULT_LOCATION when it stands in for the user's own. */
+export const DEFAULT_PLACE_NAME = 'Manila';

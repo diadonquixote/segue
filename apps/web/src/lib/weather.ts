@@ -19,6 +19,9 @@ export interface CurrentWeather {
   gustKmh?: number;
   precipitationMm?: number;
   observedAt: string;
+  /** the place's offset from UTC in minutes, from its time zone */
+  utcOffsetMinutes?: number;
+  timezone?: string;
   upcoming?: { time: string; rainChance: number; uvIndex?: number; feelsLikeC?: number }[];
 }
 
@@ -45,6 +48,10 @@ export interface SkyView {
   moonPath?: number;
   /** the sky is south of the equator */
   southern?: boolean;
+  /** the clock offset where the sky is, in minutes from UTC */
+  utcOffsetMinutes?: number;
+  /** the app is showing a stand-in place (Manila), not where the user is */
+  notYours?: boolean;
   temperatureC?: number;
   known: boolean;
   preview?: boolean;
@@ -148,4 +155,17 @@ export function skyWords(sky: Pick<SkyView, 'condition' | 'isDay' | 'phase'>): s
   const copy = SKY_COPY[sky.condition];
   if (sky.phase === 'dawn' || sky.phase === 'dusk') return copy.twilight ?? copy.night;
   return sky.isDay ? copy.day : copy.night;
+}
+
+/**
+ * The clock offset where the sky is, for its sunrise and local hours: the
+ * place's own time zone from the weather when known; the device's when it's
+ * the user's own location; otherwise an estimate from the longitude.
+ */
+export function skyUtcOffset(opts: { saved?: SavedSky; location: LatLng; yours: boolean; deviceOffset: number }): number {
+  const { saved, location } = opts;
+  const sameArea = saved && haversineMeters(saved.location, location) <= 50_000;
+  if (sameArea && saved.weather.utcOffsetMinutes !== undefined) return saved.weather.utcOffsetMinutes;
+  if (opts.yours) return opts.deviceOffset;
+  return Math.round(location.lng / 15) * 60;
 }

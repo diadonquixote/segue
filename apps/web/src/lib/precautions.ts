@@ -34,15 +34,16 @@ const ORDER = { danger: 0, warn: 1, info: 2 } as const;
 const MAX_SHOWN = 4;
 
 const round = (n: number) => Math.round(n);
-const hourOf = (iso: string) => new Date(iso).getHours();
+/** The hour on the clock where the sky is (not the device's). */
+const localHour = (ms: number, offsetMin: number) => new Date(ms + offsetMin * 60_000).getUTCHours();
 const isDaytimeHour = (h: number) => h >= 7 && h < 18;
 
 /** The warmest daytime hour coming up (or now), as feels-like °C. */
-function peakFeels(w: CurrentWeather, now: Date): { c: number; at?: string } | null {
+function peakFeels(w: CurrentWeather, now: Date, offsetMin: number): { c: number; at?: string } | null {
   const candidates: { c: number; at?: string }[] = [];
-  if (w.feelsLikeC !== undefined && isDaytimeHour(now.getHours())) candidates.push({ c: w.feelsLikeC });
+  if (w.feelsLikeC !== undefined && isDaytimeHour(localHour(now.getTime(), offsetMin))) candidates.push({ c: w.feelsLikeC });
   for (const h of w.upcoming ?? []) {
-    if (h.feelsLikeC !== undefined && isDaytimeHour(hourOf(h.time)) && Date.parse(h.time) >= now.getTime() - 3_600_000) {
+    if (h.feelsLikeC !== undefined && isDaytimeHour(localHour(Date.parse(h.time), offsetMin)) && Date.parse(h.time) >= now.getTime() - 3_600_000) {
       candidates.push({ c: h.feelsLikeC, at: h.time });
     }
   }
@@ -67,7 +68,9 @@ const DRIVE_COPY: Record<TravelMode, string> = {
 };
 
 export function precautionsFor(sky: SkyView, ctx: { now: Date; mode: TravelMode }): Precaution[] {
-  if (!sky.known) return [];
+  // A stand-in sky (Manila while the user's location is unknown) isn't their weather to act on.
+  if (!sky.known || sky.notYours) return [];
+  const offsetMin = sky.utcOffsetMinutes ?? sky.details?.utcOffsetMinutes ?? -ctx.now.getTimezoneOffset();
   const { now, mode } = ctx;
   const w: CurrentWeather = sky.details ?? { condition: sky.condition, isDay: sky.isDay, temperatureC: sky.temperatureC, observedAt: now.toISOString() };
   const out: Precaution[] = [];
@@ -126,7 +129,7 @@ export function precautionsFor(sky: SkyView, ctx: { now: Date; mode: TravelMode 
   }
 
   // Heat, by how hot it feels.
-  const feels = peakFeels(w, now);
+  const feels = peakFeels(w, now, offsetMin);
   const feelsNow = w.feelsLikeC;
   if (feelsNow !== undefined && feelsNow >= HEAT_DANGER) {
     out.push({

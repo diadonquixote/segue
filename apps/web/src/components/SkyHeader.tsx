@@ -2,12 +2,13 @@ import { useEffect, useMemo } from 'react';
 import { longDate } from '../lib/format';
 import { toneAt } from '../lib/skyRenderer';
 import { skyWords, type SkyView } from '../lib/weather';
+import { DEFAULT_PLACE_NAME } from '../lib/seed';
 import { Sky, sceneFor } from './Sky';
 
 export type View = 'today' | 'plan' | 'routines';
 
 export type LocationStatus =
-  | { kind: 'located'; at?: string }
+  | { kind: 'located'; at?: string; name?: string }
   | { kind: 'default' }
   | { kind: 'denied' }
   | { kind: 'locating' };
@@ -64,7 +65,12 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', top));
   }, [top]);
 
-  const where = location.kind === 'located' ? 'Your location' : location.kind === 'locating' ? 'Finding you…' : 'Use my location';
+  const where =
+    location.kind === 'located'
+      ? (location.name ?? 'Your location')
+      : location.kind === 'locating'
+        ? 'Finding you…'
+        : `Showing ${DEFAULT_PLACE_NAME}. Tap to use your location.`;
 
   return (
     <header className="sky-band">
@@ -117,10 +123,10 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
           </span>
           <button
             type="button"
-            className={`where-button${location.kind === 'located' ? ' on' : ''}`}
+            className={`where-button${location.kind === 'located' ? ' on' : location.kind === 'locating' ? '' : ' stand-in'}`}
             onClick={onLocate}
             disabled={location.kind === 'locating'}
-            aria-label={location.kind === 'located' ? 'Update your location' : undefined}
+            aria-label={location.kind === 'located' ? `Update your location${location.name ? `, now ${location.name}` : ''}` : undefined}
             title={location.kind === 'denied' ? "Location is blocked. Allow it in your browser's site settings." : undefined}
           >
             <PinIcon />

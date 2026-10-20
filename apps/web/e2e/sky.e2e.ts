@@ -35,3 +35,23 @@ test.describe('the page takes on the sky', () => {
     expect(b).toBeGreaterThan(r); // a little blue from the sky
   });
 });
+
+test.describe('where the sky is', () => {
+  test('says plainly when it is showing Manila instead of the user', async ({ page, context }) => {
+    await context.clearPermissions(); // location not allowed
+    await setUp(page, '/app?sky=clear', '2026-10-20T10:00:00+08:00');
+    await expect(page.locator('.where-button')).toHaveText('Showing Manila. Tap to use your location.');
+    await expect(page.locator('.precautions')).toHaveCount(0); // not the user's weather
+  });
+
+  test("names the user's area beside the pin", async ({ page }) => {
+    await page.route('http://127.0.0.1:9/v1/place-name**', (r) =>
+      r.fulfill({ headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Urdaneta, Makati' }) }),
+    );
+    await setUp(page, '/app?sky=clear', '2026-10-20T10:00:00+08:00');
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('button', { name: /Use my location|Update my location/ }).click();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.locator('.where-button')).toHaveText('Urdaneta, Makati');
+  });
+});

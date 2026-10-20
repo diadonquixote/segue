@@ -149,6 +149,8 @@ export const CurrentWeatherSchema = z.object({
   gustKmh: z.number().min(0).optional(),
   precipitationMm: z.number().min(0).optional(),
   observedAt: isoTimestamp,
+  utcOffsetMinutes: z.number().int().min(-720).max(840).optional(),
+  timezone: z.string().max(64).optional(),
   upcoming: z
     .array(
       z.object({

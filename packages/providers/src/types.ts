@@ -28,8 +28,12 @@ export interface CurrentWeather {
   uvIndex?: number;
   gustKmh?: number;
   precipitationMm?: number;
-  /** ISO timestamp of the observation */
+  /** ISO timestamp of the observation, with the place's own UTC offset */
   observedAt: string;
+  /** the place's offset from UTC in minutes (Manila = 480), for its sunrise, sunset and local hours */
+  utcOffsetMinutes?: number;
+  /** IANA time zone of the place, e.g. "Asia/Manila" */
+  timezone?: string;
   /** the next 12 hours, for "rain from 3 PM" and the day's highest UV */
   upcoming?: UpcomingHour[];
 }

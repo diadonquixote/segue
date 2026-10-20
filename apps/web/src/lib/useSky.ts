@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LatLng } from '@segue/engine';
 import { getItem, setItem } from './store';
 import { moonProgress, sunState } from './sunTimes';
-import { fetchCurrentWeather, needsRefresh, skyPreview, skyToShow, type SavedSky, type SkyView } from './weather';
+import { fetchCurrentWeather, needsRefresh, skyPreview, skyToShow, skyUtcOffset, type SavedSky, type SkyView } from './weather';
 
 /** After a failed check, wait this long before asking again. */
 const RETRY_MS = 5 * 60_000;
@@ -11,7 +11,8 @@ const RETRY_MS = 5 * 60_000;
  * Current sky for `location`: the saved one first (instant, works offline),
  * refreshed from the API when it's old or the user has moved.
  */
-export function useSky(location: LatLng, now: Date): SkyView {
+/** `yours` is false when `location` is a stand-in (Manila) because the user's own isn't known. */
+export function useSky(location: LatLng, now: Date, { yours = true } = {}): SkyView {
   const [saved, setSaved] = useState<SavedSky | undefined>();
   const [loaded, setLoaded] = useState(false);
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
@@ -50,12 +51,14 @@ export function useSky(location: LatLng, now: Date): SkyView {
 
   // The time of day comes from the clock on every tick, never from the saved weather.
   const at = preview?.night ? lateEvening(now) : now;
-  const offset = -now.getTimezoneOffset();
+  const offset = skyUtcOffset({ saved, location, yours, deviceOffset: -now.getTimezoneOffset() });
   const sun = sunState(at.getTime(), location.lat, location.lng, offset);
   const view: SkyView = {
     ...skyToShow(saved, at, sun),
     moonPath: moonProgress(at.getTime(), sun.times.solarNoon),
     southern: location.lat < 0,
+    utcOffsetMinutes: offset,
+    notYours: !yours,
   };
   // A preview keeps the real temperature but uses its own details, so precautions follow the preview.
   if (!preview) return view;

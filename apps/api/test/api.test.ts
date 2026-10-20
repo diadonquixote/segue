@@ -37,6 +37,7 @@ beforeAll(async () => {
       config: { corsOrigins: ['http://localhost:5173'], rerouteRateLimit: 5 },
       places: new MockPlacesProvider(),
       weather,
+      geocoder: { name: 'fake', placeName: async ({ lat }) => (lat > 80 ? null : 'Poblacion, Makati') },
       log: () => {},
     }),
   );
@@ -121,6 +122,12 @@ describe('API', () => {
 
   it('returns 404 for unknown routes', async () => {
     expect((await fetch(`${base}/nope`)).status).toBe(404);
+  });
+
+  it('names the area for the location pin', async () => {
+    expect(await (await fetch(`${base}/v1/place-name?lat=14.56&lng=121.03`)).json()).toEqual({ name: 'Poblacion, Makati' });
+    expect(await (await fetch(`${base}/v1/place-name?lat=85&lng=121`)).json()).toEqual({ name: null });
+    expect((await fetch(`${base}/v1/place-name?lng=121`)).status).toBe(400);
   });
 
   it('returns the current sky', async () => {

@@ -9,6 +9,10 @@ import {
   MockPlacesProvider,
   OpenMeteoProvider,
   skyFromWmo,
+  withOffset,
+  shortPlaceName,
+  NominatimGeocoder,
+  CachedGeocoder,
   OsmPlacesProvider,
   buildOverpassQuery,
   geohash,
@@ -205,8 +209,10 @@ describe('Open-Meteo', () => {
   it('reads current conditions into one of the five skies', async () => {
     const w = new OpenMeteoProvider(
       jsonFetch({
-        current: { time: '2026-10-19T11:00', weather_code: 63, precipitation: 1.2, temperature_2m: 26.4, apparent_temperature: 30.1, is_day: 0, uv_index: 0, wind_gusts_10m: 41 },
-        hourly: { time: ['2026-10-19T11:00', '2026-10-19T12:00'], precipitation_probability: [80, null], uv_index: [0, 0.4], apparent_temperature: [30.1, 29.8] },
+        current: { time: '2026-10-19T19:00', weather_code: 63, precipitation: 1.2, temperature_2m: 26.4, apparent_temperature: 30.1, is_day: 0, uv_index: 0, wind_gusts_10m: 41 },
+        hourly: { time: ['2026-10-19T19:00', '2026-10-19T20:00'], precipitation_probability: [80, null], uv_index: [0, 0.4], apparent_temperature: [30.1, 29.8] },
+        utc_offset_seconds: 28800,
+        timezone: 'Asia/Manila',
       }),
     );
     expect(await w.current(MANILA)).toEqual({
@@ -217,12 +223,16 @@ describe('Open-Meteo', () => {
       uvIndex: 0,
       gustKmh: 41,
       precipitationMm: 1.2,
-      observedAt: '2026-10-19T11:00:00Z',
+      observedAt: '2026-10-19T19:00:00+08:00',
+      utcOffsetMinutes: 480,
+      timezone: 'Asia/Manila',
       upcoming: [
-        { time: '2026-10-19T11:00:00Z', rainChance: 80, uvIndex: 0, feelsLikeC: 30.1 },
-        { time: '2026-10-19T12:00:00Z', rainChance: 0, uvIndex: 0.4, feelsLikeC: 29.8 },
+        { time: '2026-10-19T19:00:00+08:00', rainChance: 80, uvIndex: 0, feelsLikeC: 30.1 },
+        { time: '2026-10-19T20:00:00+08:00', rainChance: 0, uvIndex: 0.4, feelsLikeC: 29.8 },
       ],
     });
+    // the same moment as the UTC clock reads it
+    expect(Date.parse('2026-10-19T19:00:00+08:00')).toBe(Date.parse('2026-10-19T11:00:00Z'));
   });
 
   it('rejects a response without a weather code', async () => {
@@ -250,5 +260,51 @@ describe('skyFromWmo', () => {
     [99, 12, 'storm'],
   ] as const)('code %i with %f mm is %s', (code, mm, sky) => {
     expect(skyFromWmo(code, mm)).toBe(sky);
+  });
+});
+
+describe('local times', () => {
+  it('writes local clock times with their offset', () => {
+    expect(withOffset('2026-10-20T06:00', 28800)).toBe('2026-10-20T06:00:00+08:00');
+    expect(withOffset('2026-10-20T06:00', -18000)).toBe('2026-10-20T06:00:00-05:00');
+    expect(withOffset('2026-10-20T06:00', 19800)).toBe('2026-10-20T06:00:00+05:30');
+  });
+});
+
+describe('place names', () => {
+  it('keeps them short: neighbourhood and city, or the best single name', () => {
+    expect(shortPlaceName({ suburb: 'Poblacion', city: 'Makati' })).toBe('Poblacion, Makati');
+    expect(shortPlaceName({ quarter: 'Bel-Air', city: 'City of Makati' })).toBe('Bel-Air, Makati');
+    expect(shortPlaceName({ city: 'Quezon City' })).toBe('Quezon');
+    expect(shortPlaceName({ town: 'Tagaytay', county: 'Cavite' })).toBe('Tagaytay');
+    expect(shortPlaceName({ state: 'Batangas' })).toBe('Batangas');
+    expect(shortPlaceName({ suburb: 'A very long neighbourhood name indeed', city: 'Somewhere' })).toBe('Somewhere');
+    expect(shortPlaceName(undefined)).toBeNull();
+  });
+
+  it('asks Nominatim politely and caches by area', async () => {
+    const seen: { url: string; ua: string | null }[] = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      seen.push({ url, ua: new Headers(init?.headers).get('user-agent') });
+      return new Response(JSON.stringify({ address: { suburb: 'Poblacion', city: 'Makati' } }));
+    };
+    const geo = new CachedGeocoder(new NominatimGeocoder(fetchFn, 'Segue test', 'https://nominatim.test/reverse', 0));
+    expect(await geo.placeName({ lat: 14.5647, lng: 121.0293 })).toBe('Poblacion, Makati');
+    expect(await geo.placeName({ lat: 14.5649, lng: 121.0295 })).toBe('Poblacion, Makati'); // same cell
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toContain('zoom=14');
+    expect(seen[0]!.ua).toBe('Segue test');
+  });
+
+  it('spaces requests at least a second apart', async () => {
+    const waits: number[] = [];
+    const fetchFn: FetchFn = async () => new Response(JSON.stringify({ address: { city: 'Manila' } }));
+    const geo = new NominatimGeocoder(fetchFn, 'ua', 'https://nominatim.test/reverse', 1100, async (ms) => {
+      waits.push(ms);
+    });
+    await geo.placeName({ lat: 14.6, lng: 121 });
+    await geo.placeName({ lat: 10.3, lng: 123.9 });
+    expect(waits.length).toBe(1);
+    expect(waits[0]).toBeGreaterThan(1000);
   });
 });

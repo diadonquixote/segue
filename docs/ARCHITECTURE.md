@@ -98,6 +98,7 @@ The engine estimates door-to-door minutes per mode (with a detour factor, a walk
 | POST | `/v1/reroute` | Rebuild the rest of today. Returns `plan`, `alternatives`, `changes`, `candidates`, `meta`. |
 | GET | `/v1/places/nearby?lat&lng&category&radius&limit` | Candidates for one category. |
 | GET | `/v1/weather?lat&lng` | Hourly forecast. |
+| GET | `/v1/place-name?lat&lng` | A short name for the area ("Urdaneta, Makati") from OpenStreetMap's Nominatim, cached by geohash cell for 30 days and spaced a second apart; `{name: null}` when there isn't one or it fails. |
 | GET | `/v1/weather/now?lat&lng` | Current conditions as one of five skies, plus feels-like, UV, gusts and the next 12 hours (rain chance, UV, feels-like), for the header and weather precautions. |
 | POST | `/v1/understand` | `{text, localTime}` → blocks read from a plain-words note by Claude. Only when smart add is on; 404 otherwise. |
 | GET | `/health` | Liveness, which providers are active, and whether smart add is on. |
@@ -125,4 +126,4 @@ Requests are validated with the zod schemas in `packages/schemas`, and 400 respo
 
 ## Privacy
 
-Notes sent to smart add go to Anthropic to be read and aren't stored by Segue; the phone only sends one when the user taps **Let Segue read it**. Calendar events are read from Google in the browser; their titles, times and locations go to the API only as part of a re-route (like any other block), and the Google token never leaves the phone. Location is sent only when re-routing or checking the sky (rounded to about 1 km for the sky), and the server doesn't store it. Plans and history stay on the device. API keys stay on the server.
+Notes sent to smart add go to Anthropic to be read and aren't stored by Segue; the phone only sends one when the user taps **Let Segue read it**. Calendar events are read from Google in the browser; their titles, times and locations go to the API only as part of a re-route (like any other block), and the Google token never leaves the phone. Location is sent only when re-routing, checking the sky or naming the area (both rounded to about 1 km; the area name comes from OpenStreetMap's Nominatim), and the server doesn't store it. Plans and history stay on the device. API keys stay on the server.

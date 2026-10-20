@@ -6,7 +6,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { reroute } from '@segue/engine';
 import type { Place } from '@segue/engine';
-import type { PlacesProvider, WeatherProvider } from '@segue/providers';
+import type { PlacesProvider, ReverseGeocoder, WeatherProvider } from '@segue/providers';
 import { CurrentWeatherSchema, NearbyQuerySchema, RerouteRequestSchema, UnderstandRequestSchema, formatIssues } from '@segue/schemas';
 import { gatherCandidates } from './candidates';
 import type { Config } from './config';
@@ -19,6 +19,8 @@ export interface AppDeps {
   weather: WeatherProvider;
   /** Present when "Ask in your own words" is on. */
   understand?: Understand;
+  /** Short place names for the location pin. */
+  geocoder?: ReverseGeocoder;
   log?: (line: string) => void;
 }
 
@@ -129,6 +131,18 @@ export function createApp(deps: AppDeps) {
       } catch (e) {
         log(`current weather failed: ${(e as Error).message}`);
         throw new HttpError(503, 'Weather is unavailable right now');
+      }
+    }
+
+    if (method === 'GET' && url.pathname === '/v1/place-name') {
+      const { lat, lng } = latLngQuery(url);
+      if (!deps.geocoder) return { status: 200, body: { name: null } };
+      try {
+        return { status: 200, body: { name: await deps.geocoder.placeName({ lat, lng }) } };
+      } catch (e) {
+        log(`place name failed: ${(e as Error).message}`);
+        // No name is fine: the app just says "Your location".
+        return { status: 200, body: { name: null } };
       }
     }
 

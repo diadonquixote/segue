@@ -279,6 +279,15 @@ textarea {
   text-shadow: none;
 }
 
+/* a stand-in place: say so plainly, and invite a tap */
+.where-button.stand-in {
+  white-space: normal;
+  text-align: left;
+  line-height: 1.25;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-style: dashed;
+}
 .where-button.on {
   border-color: transparent;
   background: rgb(255 255 255 / 0.22);

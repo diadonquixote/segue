@@ -1,5 +1,8 @@
 import {
   BudgetedPlacesProvider,
+  CachedGeocoder,
+  NoGeocoder,
+  NominatimGeocoder,
   CachedPlacesProvider,
   FallbackPlacesProvider,
   GooglePlacesProvider,
@@ -25,6 +28,12 @@ export function buildPlacesProvider(config: Config): PlacesProvider {
       ? [new BudgetedPlacesProvider(new GooglePlacesProvider(config.googlePlacesApiKey!), config.googleDailyBudget), osm, mock]
       : [osm, mock];
   return new CachedPlacesProvider(new FallbackPlacesProvider(chain));
+}
+
+/** Place names from OpenStreetMap (Nominatim), cached; none with offline demo data. */
+export function buildGeocoder(config: Config) {
+  if (config.placesProvider === 'mock') return new NoGeocoder();
+  return new CachedGeocoder(new NominatimGeocoder(fetch, process.env.NOMINATIM_USER_AGENT || 'Segue day planner'));
 }
 
 export function buildWeatherProvider() {

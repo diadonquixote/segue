@@ -45,6 +45,7 @@ import { DEFAULT_LOCATION, DEFAULT_SETTINGS, SEED_BLOCKS } from './lib/seed';
 import { clearAll, getItem } from './lib/store';
 import { useCalendar } from './lib/useCalendar';
 import { askNotificationPermission, useReminders } from './lib/useReminders';
+import { usePlaceName } from './lib/placeName';
 import { useSky } from './lib/useSky';
 
 /** The API takes at most this many blocks per re-route (packages/schemas). */
@@ -97,7 +98,10 @@ export function App() {
   const today = localDate(now);
   const notify = useCallback((text: string) => setToast({ text }), []);
   const cal = useCalendar(ready, notify);
-  const sky = useSky(settings.lastLocation ?? DEFAULT_LOCATION, now);
+  // A real fix (now or earlier) is the user's own; otherwise Manila stands in, and says so.
+  const yours = !!settings.lastLocation && !!settings.lastLocationLabel;
+  const sky = useSky(yours ? settings.lastLocation! : DEFAULT_LOCATION, now, { yours });
+  const placeName = usePlaceName(yours ? settings.lastLocation : undefined);
   const systemDark = useSystemDark();
 
   // The page takes on the sky: dark under a night sky, warm at golden hour.
@@ -471,8 +475,8 @@ export function App() {
     ? { kind: 'locating' }
     : locationDenied
       ? { kind: 'denied' }
-      : settings.lastLocationLabel
-        ? { kind: 'located', at: settings.lastLocatedAt }
+      : yours
+        ? { kind: 'located', at: settings.lastLocatedAt, name: placeName }
         : { kind: 'default' };
 
   const calendarCard = (
