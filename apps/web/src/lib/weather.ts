@@ -87,9 +87,13 @@ export function needsRefresh(saved: SavedSky | undefined, location: LatLng, now:
 /** Sunrise and sunset happen when the sun's centre is this far below the horizon. */
 const SUN_UP = -0.833;
 
-/** The sky to draw: the weather (if recent) under the real time of day. */
-export function skyToShow(saved: SavedSky | undefined, now: Date, sun: SunState): SkyView {
-  const time = { isDay: sun.elevation > SUN_UP, phase: sun.phase, sun, moon: moonState(now.getTime()) };
+/**
+ * The sky to draw: the weather (if recent) under the real time of day.
+ * Freshness is always judged by the real clock (`now`); `at` is the moment
+ * the sky shows, which a preview can move.
+ */
+export function skyToShow(saved: SavedSky | undefined, now: Date, sun: SunState, at: Date = now): SkyView {
+  const time = { isDay: sun.elevation > SUN_UP, phase: sun.phase, sun, moon: moonState(at.getTime()) };
   const age = saved ? now.getTime() - Date.parse(saved.fetchedAt) : Infinity;
   if (!saved || age >= SKY_STALE_MS) return { condition: 'clear', ...time, known: false };
   const { condition, temperatureC } = saved.weather;
@@ -97,14 +101,43 @@ export function skyToShow(saved: SavedSky | undefined, now: Date, sun: SunState)
 }
 
 /**
- * `?sky=storm` (and `&night=1`) shows any sky, for previews and design checks.
+ * `?sky=storm` shows any sky, for previews and design checks.
+ * `&hour=17.5` or `&time=17:30` shows it at that time on the clock where the
+ * sky is (`&night=1` is 11 PM); `&lat=&lng=` shows it somewhere else.
  * `&feels=38&uv=10&gust=60&rainAt=15` adds details, to preview precautions.
  */
 export interface SkyPreview {
   condition: SkyCondition;
   /** show it at night: 11 PM where the sky is */
   night?: boolean;
+  /** minutes after local midnight where the sky is, from &hour= or &time= */
+  minutes?: number;
+  /** somewhere else, from &lat=&lng= */
+  place?: LatLng;
   details?: CurrentWeather;
+}
+
+/** "17:30" or "17.5" → minutes after midnight; undefined if it isn't a time of day. */
+export function previewMinutes(params: URLSearchParams): number | undefined {
+  const time = params.get('time');
+  if (time) {
+    const m = time.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return undefined;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    return h < 24 && min < 60 ? h * 60 + min : undefined;
+  }
+  const hour = params.get('hour');
+  if (hour === null || hour.trim() === '') return undefined;
+  const h = Number(hour);
+  return Number.isFinite(h) && h >= 0 && h < 24 ? Math.round(h * 60) : undefined;
+}
+
+/** That time of day today, on the clock of a place `offsetMin` from UTC. */
+export function previewMoment(now: Date, minutes: number, offsetMin: number): Date {
+  const local = new Date(now.getTime() + offsetMin * 60_000);
+  const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  return new Date(midnight + (minutes - offsetMin) * 60_000);
 }
 
 export function skyPreview(search: string, now = new Date()): SkyPreview | null {
@@ -114,12 +147,19 @@ export function skyPreview(search: string, now = new Date()): SkyPreview | null 
   const condition = sky as SkyCondition;
   const night = params.get('night') === '1';
   const isDay = !night;
+  const minutes = night ? 23 * 60 : previewMinutes(params);
+  const lat = Number(params.get('lat'));
+  const lng = Number(params.get('lng'));
+  const place =
+    params.get('lat') && params.get('lng') && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+      ? { lat, lng }
+      : undefined;
   const num = (k: string) => (params.has(k) && Number.isFinite(Number(params.get(k))) ? Number(params.get(k)) : undefined);
   const feels = num('feels');
   const uv = num('uv');
   const gust = num('gust');
   const rainAt = num('rainAt');
-  const base: SkyPreview = night ? { condition, night } : { condition };
+  const base: SkyPreview = { condition, ...(night && { night }), ...(minutes !== undefined && { minutes }), ...(place && { place }) };
   if (feels === undefined && uv === undefined && gust === undefined && rainAt === undefined) return base;
   const upcoming =
     rainAt === undefined

@@ -75,3 +75,16 @@ test('the status bar goes back to neutral on the landing page', async ({ page })
   await expect(page.locator('.lp-hero')).toBeVisible();
   await expect(page.locator('meta[name="theme-color"]').first()).toHaveAttribute('content', '#f2f4f8');
 });
+
+test('previews any time and place from the address bar', async ({ page }) => {
+  // noon on the device, but the preview asks for 9 PM
+  await setUp(page, '/app?sky=clear&time=21:00', '2026-10-20T12:00:00+08:00');
+  await expect(page.locator('html')).toHaveAttribute('data-sky-theme', 'dark');
+  await expect(page.locator('.condition')).toHaveText('Clear night');
+  // dusk in Manila is 5:45 PM
+  await page.goto('/app?sky=clear&time=17:45');
+  await expect(page.locator('.condition')).toHaveText('Clear sky');
+  // and somewhere else: midday in Sydney is daytime there
+  await page.goto('/app?sky=clear&time=12:00&lat=-33.87&lng=151.21');
+  await expect(page.locator('.condition')).toHaveText('Clear and sunny');
+});
