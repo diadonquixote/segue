@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, type CSSProperties } from 'react';
 import { longDate } from '../lib/format';
+import { CHIP_ALPHA, headerScrim } from '../lib/pageTheme';
 import { toneAt } from '../lib/skyRenderer';
 import { skyWords, type SkyView } from '../lib/weather';
 import { DEFAULT_PLACE_NAME } from '../lib/seed';
@@ -58,7 +59,10 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sky.condition, sky.sun?.elevation, sky.sun?.morning, sky.sun?.progress, sky.moon?.cycle, sky.moonPath, sky.southern],
   );
-  const top = toneAt(scene.condition, scene.elevation, scene.morning).sky[0];
+  const tone = toneAt(scene.condition, scene.elevation, scene.morning);
+  const top = tone.sky[0];
+  // As dark behind the text as this sky needs for AA, and no darker.
+  const contrastVars = { '--scrim': String(headerScrim(tone)), '--chip': String(CHIP_ALPHA) } as CSSProperties;
 
   // Tint the phone's status bar to match the sky.
   useEffect(() => {
@@ -73,7 +77,7 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
         : `Showing ${DEFAULT_PLACE_NAME}. Tap to use your location.`;
 
   return (
-    <header className="sky-band">
+    <header className="sky-band" style={contrastVars}>
       <Sky scene={scene} />
       <div className="sky-content">
         <div className="top">

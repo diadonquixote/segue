@@ -151,3 +151,43 @@ export function applyPageTheme(theme: PageTheme | null, root: HTMLElement = docu
   root.style.setProperty('color-scheme', theme.mode);
   root.dataset.skyTheme = theme.mode;
 }
+
+/** The dark used behind header text (the brand's night navy). */
+export const SCRIM: Rgb = [8, 14, 40];
+const WHITE: Rgb = [255, 255, 255];
+/** A little above 4.5:1, for rounding in the browser. */
+const TARGET = 4.6;
+
+/** The colour of a three-stop vertical gradient at `y` (0 top → 1 bottom), stops at 0, 0.55 and 1. */
+function gradientAt(sky: [string, string, string], y: number): Rgb {
+  const [a, b, c] = sky.map(hexRgb) as [Rgb, Rgb, Rgb];
+  return y <= 0.55 ? mixRgb(a, b, y / 0.55) : mixRgb(b, c, (y - 0.55) / 0.45);
+}
+
+/** The least scrim opacity that keeps white text at `TARGET` over `bg`. */
+function scrimFor(bg: Rgb): number {
+  for (let a = 0; a <= 0.9; a += 0.02) if (contrast(WHITE, mixRgb(bg, SCRIM, a)) >= TARGET) return Math.round(a * 100) / 100;
+  return 0.9;
+}
+
+/**
+ * How dark the scrim behind the header's text needs to be for this sky.
+ * Text sits in the top three-quarters of the band; a lit cloud can drift
+ * behind it, so the worst case is that cloud's colour over the sky.
+ */
+export function headerScrim(tone: Tone): number {
+  const samples: Rgb[] = [0, 0.25, 0.5, 0.75].map((y) => gradientAt(tone.sky, y));
+  samples.push(mixRgb(gradientAt(tone.sky, 0.5), tone.lit, 0.85));
+  return Math.max(...samples.map(scrimFor));
+}
+
+/** Pills and tabs on the sky are dark glass this opaque, enough for white text even over a white cloud. */
+export const CHIP_ALPHA = scrimFor(WHITE);
+
+/** White text over the scrim, at the worst point: for tests. */
+export const headerTextContrast = (tone: Tone) => {
+  const a = headerScrim(tone);
+  const samples: Rgb[] = [0, 0.25, 0.5, 0.75].map((y) => gradientAt(tone.sky, y));
+  samples.push(mixRgb(gradientAt(tone.sky, 0.5), tone.lit, 0.85));
+  return Math.min(...samples.map((bg) => contrast(WHITE, mixRgb(bg, SCRIM, a))));
+};

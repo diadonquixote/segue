@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AA_BODY, contrast, modeFor, pageTheme, passesAA } from '../src/lib/pageTheme';
-import { SKY_LOOK, hexRgb, toneAt } from '../src/lib/skyRenderer';
+import { AA_BODY, CHIP_ALPHA, SCRIM, contrast, headerScrim, headerTextContrast, modeFor, pageTheme, passesAA } from '../src/lib/pageTheme';
+import { SKY_LOOK, hexRgb, mixRgb, toneAt } from '../src/lib/skyRenderer';
 import { SKY_CONDITIONS } from '../src/lib/weather';
 
 const PHASES = ['night', 'dawn', 'golden-hour', 'day', 'dusk'] as const;
@@ -46,5 +46,23 @@ describe('page theme', () => {
     expect(day[2]).toBeGreaterThan(day[0]); // bluer than red
     expect(golden[0]).toBeGreaterThan(golden[2]); // warmer than blue
     expect(pageTheme(SKY_LOOK.clear.day, 'day', false).tokens.fog).not.toBe('#f2f4f8');
+  });
+});
+
+describe('header text on the sky', () => {
+  it('stays at AA in every sky and phase, even with a bright cloud behind it', () => {
+    for (const condition of SKY_CONDITIONS) {
+      for (const phase of PHASES) expect(headerTextContrast(SKY_LOOK[condition][phase]), `${condition} ${phase}`).toBeGreaterThanOrEqual(AA_BODY);
+      for (let e = -14; e <= 14; e++) for (const morning of [true, false]) expect(headerTextContrast(toneAt(condition, e, morning))).toBeGreaterThanOrEqual(AA_BODY);
+    }
+  });
+
+  it('only darkens as much as each sky needs', () => {
+    expect(headerScrim(SKY_LOOK.storm.night)).toBeLessThan(headerScrim(SKY_LOOK.fog.day));
+    expect(headerScrim(SKY_LOOK.clear.night)).toBeLessThan(0.3);
+  });
+
+  it('keeps white text on the pills and tabs readable over anything', () => {
+    expect(contrast('#ffffff', mixRgb([255, 255, 255], SCRIM, CHIP_ALPHA))).toBeGreaterThanOrEqual(AA_BODY);
   });
 });

@@ -175,7 +175,7 @@ textarea {
 
 .date,
 .weather-line {
-  text-shadow: 0 1px 10px rgb(0 0 0 / 0.3);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 1px 12px rgb(0 0 0 / 0.3);
 }
 
 .top-actions {
@@ -190,7 +190,8 @@ textarea {
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.16);
+  /* dark glass: white text stays readable even over a white cloud (CHIP_ALPHA) */
+  background: rgb(8 14 40 / var(--chip, 0.58));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
@@ -218,7 +219,7 @@ textarea {
   height: 38px;
   border: 0;
   border-radius: 50%;
-  background: rgb(255 255 255 / 0.16);
+  background: rgb(8 14 40 / var(--chip, 0.58));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: #fff;
@@ -268,8 +269,8 @@ textarea {
   min-height: 34px;
   padding: 0 12px 0 10px;
   border-radius: 999px;
-  border: 1px solid rgb(255 255 255 / 0.55);
-  background: rgb(255 255 255 / 0.14);
+  border: 1px solid rgb(255 255 255 / 0.35);
+  background: rgb(8 14 40 / var(--chip, 0.58));
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   color: #fff;
@@ -290,7 +291,6 @@ textarea {
 }
 .where-button.on {
   border-color: transparent;
-  background: rgb(255 255 255 / 0.22);
 }
 
 .where-button:disabled {
@@ -314,10 +314,16 @@ textarea {
 
 /* a soft shade behind the words, so bright skies never wash them out */
 .sky::after {
+  /* a scrim behind the header's text, as dark as this sky needs for AA (see headerScrim) */
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(100deg, rgb(8 14 40 / 0.3) 0%, rgb(8 14 40 / 0.12) 45%, rgb(8 14 40 / 0) 70%);
+  background: linear-gradient(
+    100deg,
+    rgb(8 14 40 / var(--scrim, 0.3)) 0%,
+    rgb(8 14 40 / var(--scrim, 0.3)) 66%,
+    rgb(8 14 40 / 0) 92%
+  );
 }
 
 /* ---------- next up ---------- */
