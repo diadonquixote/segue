@@ -12,14 +12,17 @@ import { PrecautionsCard } from './components/Precautions';
 import { QuickAdd } from './components/QuickAdd';
 import { ReplanSheet } from './components/ReplanSheet';
 import { SettingsSheet } from './components/SettingsSheet';
-import { SkyHeader, type LocationStatus, type View } from './components/SkyHeader';
+import { LocationBanner } from './components/LocationBanner';
+import { SkyHeader, type View } from './components/SkyHeader';
 import { Timeline } from './components/Timeline';
 import { calendarBlockId } from './lib/calendar';
 import { clock } from './lib/format';
 import { firstName, forgetAccount, loadAccount, signUpWithGoogle, type Account } from './lib/account';
 import { GOOGLE_CLIENT_ID, calendarErrorMessage } from './lib/googleCalendar';
 import { useNow, usePersisted, useSystemDark } from './lib/hooks';
-import { currentLocation, locate, locationPermission } from './lib/location';
+import { areaForZone, currentLocation, deviceZone, sourceLocation } from './lib/location';
+import { locationBanner, locationStatus } from './lib/locationStatus';
+import { useWhereabouts } from './lib/useWhereabouts';
 import {
   affinityFrom,
   emptyDay,
@@ -84,8 +87,6 @@ export function App() {
   }, [route]);
   const [sheet, setSheet] = useState<SheetState>(null);
   const [toast, setToast] = useState<Toast | null>(null);
-  const [locating, setLocating] = useState(false);
-  const [locationDenied, setLocationDenied] = useState(false);
   const [replanBusy, setReplanBusy] = useState(false);
   const [replanError, setReplanError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<RerouteOutcome | null>(null);
@@ -98,10 +99,14 @@ export function App() {
   const today = localDate(now);
   const notify = useCallback((text: string) => setToast({ text }), []);
   const cal = useCalendar(ready, notify);
-  // A real fix (now or earlier) is the user's own; otherwise Manila stands in, and says so.
-  const yours = !!settings.lastLocation && !!settings.lastLocationLabel;
-  const sky = useSky(yours ? settings.lastLocation! : DEFAULT_LOCATION, now, { yours });
-  const placeName = usePlaceName(yours ? settings.lastLocation : undefined);
+  // Segue finds and follows the location on its own. A real fix (now or saved) is the user's own;
+  // otherwise the time zone's main city stands in, and the pin says so. The user never picks the sky.
+  const where = useWhereabouts(ready, { location: settings.lastLocation, at: settings.lastLocatedAt });
+  const yours = where.source.kind === 'here' || where.source.kind === 'last';
+  // Until the first position arrives, no weather at all: never a stand-in's sky shown as the user's.
+  const skyLocation = where.waiting ? undefined : sourceLocation(where.source);
+  const sky = useSky(skyLocation, now, { yours, deviceClock: true });
+  const placeName = usePlaceName(yours ? skyLocation : undefined);
   const systemDark = useSystemDark();
 
   // The page takes on the sky: dark under a night sky, warm at golden hour.
@@ -136,10 +141,6 @@ export function App() {
       if (calendar) cal.setCalendar(calendar);
       setAccount((await loadAccount()) ?? null);
       setReady(true);
-      // Already allowed: quietly refresh where we are, so the sky is local. Never prompts.
-      const permission = await locationPermission();
-      if (permission === 'granted') void locateNow({ quiet: true });
-      if (permission === 'denied') setLocationDenied(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -173,23 +174,6 @@ export function App() {
     setDay(prev);
     setUndoStack(rest);
     setToast({ text: 'Undone.' });
-  }
-
-  async function locateNow({ quiet = false } = {}) {
-    setLocating(true);
-    const found = await locate();
-    setLocating(false);
-    if (found.ok) {
-      const at = new Date().toISOString();
-      setLocationDenied(false);
-      setSettings((s) => ({ ...s, lastLocation: found.location, lastLocationLabel: `near you at ${clock(at)}`, lastLocatedAt: at }));
-      if (!quiet) setToast({ text: 'Using your location.' });
-    } else if (found.reason === 'denied') {
-      setLocationDenied(true);
-      if (!quiet) setToast({ text: "Location is blocked. Allow it in your browser's site settings." });
-    } else if (!quiet) {
-      setToast({ text: "Couldn't find you. Try again in a moment." });
-    }
   }
 
   function applyPlan(o: RerouteOutcome, plan: Plan, pendingBusy?: StoredBlock) {
@@ -233,10 +217,9 @@ export function App() {
         }
         const adj = adjustFor(why, start, settings.energy, endOfDay);
         const located = await currentLocation(8000, adj.refreshLocation);
-        const location = located ?? settings.lastLocation ?? DEFAULT_LOCATION;
-        if (located) {
-          setSettings((s) => ({ ...s, lastLocation: located, lastLocationLabel: `near you at ${clock(start.toISOString())}`, lastLocatedAt: start.toISOString() }));
-        }
+        if (located) where.remember(located);
+        const area = areaForZone(deviceZone());
+        const location = located ?? where.fix?.location ?? area?.location ?? DEFAULT_LOCATION;
         const excluded = new Set(day.excludedIds ?? []);
         const planned = blocks.filter((b) => plannedToday(b, localDate(start)) && b.id !== BUSY_BLOCK_ID && !excluded.has(b.id));
         const room = MAX_BLOCKS - planned.length - adj.extraBlocks.length;
@@ -258,7 +241,9 @@ export function App() {
             weather: adj.weather,
           },
         });
-        if (!located && !settings.lastLocation) o.warnings.unshift("No location yet, so this plans from Metro Manila. Tap Use my location for nearby places.");
+        if (!located && !where.fix) {
+          o.warnings.unshift(`No location yet, so this plans around ${area?.name ?? 'Metro Manila'}. Allow location in your browser for places near you.`);
+        }
         o.warnings.push(...fromCalendar.warnings);
         if (o.placeCache) setPlaceCache(o.placeCache);
         const busy = adj.extraBlocks.find((b) => b.id === BUSY_BLOCK_ID);
@@ -286,7 +271,7 @@ export function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [blocks, day, placeCache, settings, favorites, history, cal.calendar],
+    [blocks, day, placeCache, settings, favorites, history, cal.calendar, where.fix, where.remember],
   );
 
   // First open of the day: plan it straight away.
@@ -471,13 +456,16 @@ export function App() {
 
   if (!ready) return <div className="boot" aria-busy="true" />;
 
-  const locationStatus: LocationStatus = locating
-    ? { kind: 'locating' }
-    : locationDenied
-      ? { kind: 'denied' }
-      : yours
-        ? { kind: 'located', at: settings.lastLocatedAt, name: placeName }
-        : { kind: 'default' };
+  const status = locationStatus({
+    source: where.source,
+    permission: where.permission,
+    asking: where.asking,
+    waiting: where.waiting,
+    name: placeName,
+    weatherAt: sky.fetchedAt,
+    now,
+  });
+  const banner = locationBanner(where);
 
   const calendarCard = (
     <CalendarCard
@@ -501,8 +489,7 @@ export function App() {
       now={now}
       view={route === 'calendar' ? lastRoute.current : route}
       onView={(r) => navigate(r)}
-      location={locationStatus}
-      onLocate={() => void locateNow()}
+      location={status}
       onSettings={() => setSheet({ kind: 'settings' })}
       tempUnit={settings.tempUnit ?? 'C'}
       showNav={!!settings.onboarded}
@@ -519,8 +506,8 @@ export function App() {
             name={firstName(account) || undefined}
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
-            location={locationStatus}
-            onLocate={() => void locateNow()}
+            location={status}
+            locationProblem={banner}
             added={blocks.filter((b) => b.date === today)}
             onAdd={(added) => addBlocks(added, { plan: false })}
             onRemove={(id) => setBlocks((list) => list.filter((b) => b.id !== id))}
@@ -546,6 +533,7 @@ export function App() {
     <>
       {header}
       <div className="app">
+        <LocationBanner banner={banner} />
         <main>
           {route === 'today' && (
             <Timeline
@@ -715,8 +703,9 @@ export function App() {
           <SettingsSheet
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
-            location={locationStatus}
-            onLocate={() => void locateNow()}
+            location={status}
+            locationUnsupported={where.permission === 'unsupported'}
+            locatedAt={where.fix?.at}
             favorites={favorites}
             onRemoveFavorite={(id) => setFavorites((list) => list.filter((f) => f.id !== id))}
             onToggleReminders={(on) => void toggleReminders(on)}
