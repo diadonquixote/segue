@@ -1,6 +1,9 @@
 import {
   BudgetedPlacesProvider,
   CachedGeocoder,
+  CachedWeatherProvider,
+  FallbackWeatherProvider,
+  MetNoProvider,
   NoGeocoder,
   NominatimGeocoder,
   CachedPlacesProvider,
@@ -10,6 +13,7 @@ import {
   OpenMeteoProvider,
   OsmPlacesProvider,
   type PlacesProvider,
+  type WeatherProvider,
 } from '@segue/providers';
 import type { Config } from './config';
 
@@ -36,6 +40,15 @@ export function buildGeocoder(config: Config) {
   return new CachedGeocoder(new NominatimGeocoder(fetch, process.env.NOMINATIM_USER_AGENT || 'Segue day planner'));
 }
 
-export function buildWeatherProvider() {
-  return new OpenMeteoProvider();
+/**
+ * Open-Meteo first (free, but limited per IP, and shared hosts burn through that), MET Norway when it refuses,
+ * all cached so a cell is asked about once per few minutes, not once per visitor.
+ * MET Norway asks for a User-Agent that says who is calling; set WEATHER_USER_AGENT to your own contact.
+ */
+export function buildWeatherProvider(log: (line: string) => void = console.warn): WeatherProvider {
+  const userAgent = process.env.WEATHER_USER_AGENT || 'Segue day planner (pdyntechnology@gmail.com)';
+  const chain = new FallbackWeatherProvider(new OpenMeteoProvider(), new MetNoProvider(fetch, userAgent), 5 * 60 * 1000, Date.now, (e) =>
+    log(`weather: ${e.message}; using MET Norway for a few minutes`),
+  );
+  return new CachedWeatherProvider(chain);
 }

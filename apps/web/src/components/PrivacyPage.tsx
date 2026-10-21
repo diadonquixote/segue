@@ -123,7 +123,9 @@ export function PrivacyPage() {
               names: your position rounded to about 1 km. When Google Places is switched on, the same search area goes to Google Places instead.
             </li>
             <li>
-              <strong>Open-Meteo</strong>, for weather: your position rounded to about 1 km.
+              <strong>Open-Meteo</strong>, for weather: your position rounded to about 1 km. If Open-Meteo is unavailable, the same rounded position goes to{' '}
+              <strong>MET Norway</strong> instead. Weather data from{' '}
+              <a href="https://api.met.no/doc/License" target="_blank" rel="noopener noreferrer">MET Norway</a>, licensed CC BY 4.0.
             </li>
             <li>
               <strong>Anthropic</strong>, only for &ldquo;Let Segue read it&rdquo;: your note and local time, to turn it into blocks.

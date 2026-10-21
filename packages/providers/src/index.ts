@@ -5,6 +5,14 @@ export { OsmPlacesProvider, buildOverpassQuery, parseOverpass } from './osm';
 export { GooglePlacesProvider, parseGoogleHours, parseGooglePlaces } from './google';
 export { MockPlacesProvider } from './mock';
 export { OpenMeteoProvider, NoWeatherProvider, skyFromWmo, withOffset } from './weather';
+export {
+  MetNoProvider,
+  FallbackWeatherProvider,
+  CachedWeatherProvider,
+  skyFromMetSymbol,
+  apparentTemperatureC,
+  type WeatherCacheOptions,
+} from './weatherChain';
 export { CachedGeocoder, NominatimGeocoder, NoGeocoder, shortPlaceName, type ReverseGeocoder } from './geocode';
 export {
   MemoryStore,
