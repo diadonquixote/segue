@@ -1,0 +1,30 @@
+# Render Blueprint for the Segue API. The web app goes on Vercel (see apps/web/vercel.json).
+services:
+  - type: web
+    name: segue-api
+    runtime: node
+    plan: free
+    region: singapore # closest to the Philippines
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --production=false && pnpm --filter @segue/api build
+    startCommand: node apps/api/dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      - key: PLACES_PROVIDER
+        value: osm
+      # Your web app's address, e.g. https://segue.example.com (comma-separate more than one).
+      - key: CORS_ORIGINS
+        sync: false
+      # Leave empty to keep smart add off. Set a spend limit in the Anthropic Console first.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SMART_ADD_DAILY_CAP
+        value: 300
+      - key: READ_RATE_LIMIT
+        value: 300
+      # How many proxies sit in front of the server. Check it after the first deploy (see README).
+      - key: TRUSTED_PROXY_HOPS
+        value: 1

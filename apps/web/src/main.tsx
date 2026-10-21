@@ -1,17 +1,18 @@
 import { StrictMode, Suspense, lazy, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { isAppPath } from './lib/router';
+import { isAppPath, isPrivacyPath } from './lib/router';
 import './styles.css';
 
 // Each page loads only its own code: the landing page stays light, the app loads under /app.
 const App = lazy(() => import('./App').then((m) => ({ default: m.App })));
 const Landing = lazy(() => import('./components/Landing').then((m) => ({ default: m.Landing })));
+const PrivacyPage = lazy(() => import('./components/PrivacyPage').then((m) => ({ default: m.PrivacyPage })));
 
 const standalone = window.matchMedia?.('(display-mode: standalone)').matches;
 // An installed Segue opens straight into the app.
-if (!isAppPath(window.location.pathname) && standalone) history.replaceState(null, '', '/app');
+if (!isAppPath(window.location.pathname) && !isPrivacyPath(window.location.pathname) && standalone) history.replaceState(null, '', '/app');
 
-/** Landing page or app, following the address bar, so going from one to the other needs no page load. */
+/** Landing page, app or privacy policy, following the address bar. Landing and app switch without a page load. */
 function Root() {
   const [inApp, setInApp] = useState(() => isAppPath(window.location.pathname));
   useEffect(() => {
@@ -19,7 +20,8 @@ function Root() {
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
   }, []);
-  return <Suspense fallback={<div className="boot" aria-busy="true" />}>{inApp ? <App /> : <Landing />}</Suspense>;
+  const page = inApp ? <App /> : isPrivacyPath(window.location.pathname) ? <PrivacyPage /> : <Landing />;
+  return <Suspense fallback={<div className="boot" aria-busy="true" />}>{page}</Suspense>;
 }
 
 createRoot(document.getElementById('root')!).render(

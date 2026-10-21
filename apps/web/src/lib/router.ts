@@ -15,6 +15,9 @@ const PATHS: Record<Route, string> = {
 
 export const isAppPath = (path: string) => path === '/app' || path.startsWith('/app/');
 
+/** The privacy policy page. */
+export const isPrivacyPath = (path: string) => path.replace(/\/+$/, '') === '/privacy';
+
 export function routeFor(path: string): Route {
   const clean = path.replace(/\/+$/, '') || '/';
   return (Object.keys(PATHS) as Route[]).find((r) => PATHS[r] === clean) ?? 'today';

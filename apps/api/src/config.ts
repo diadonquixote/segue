@@ -9,6 +9,23 @@ export interface Config {
   /** "Ask in your own words" via Claude. Needs Anthropic credentials. */
   smartAdd: boolean;
   smartAddRateLimit: number;
+  /** Reads (places, weather, place names) per client per hour. Each one can reach a free upstream service. */
+  readRateLimit: number;
+  /** All clients together: paid smart-add calls per UTC day. 0 turns the cap off. */
+  smartAddDailyCap: number;
+  /** A header the host sets to the real client IP (for example x-real-ip). Wins over x-forwarded-for. */
+  clientIpHeader?: string;
+  /** Proxies in front of this server that each append to x-forwarded-for. */
+  trustedProxyHops: number;
+}
+
+/** A non-negative whole number from the environment, or the fallback when it is unset. */
+function count(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} must be a whole number, 0 or more (got "${raw}")`);
+  return n;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -32,5 +49,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // On with SMART_ADD=on, or automatically when an Anthropic key is set (SMART_ADD=off wins).
     smartAdd: env.SMART_ADD === 'on' || (env.SMART_ADD !== 'off' && !!env.ANTHROPIC_API_KEY),
     smartAddRateLimit: Number(env.SMART_ADD_RATE_LIMIT ?? 40),
+    readRateLimit: count(env, 'READ_RATE_LIMIT', 300),
+    smartAddDailyCap: count(env, 'SMART_ADD_DAILY_CAP', 300),
+    clientIpHeader: env.CLIENT_IP_HEADER?.trim().toLowerCase() || undefined,
+    trustedProxyHops: count(env, 'TRUSTED_PROXY_HOPS', 1),
   };
 }

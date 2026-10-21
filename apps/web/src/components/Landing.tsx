@@ -71,8 +71,8 @@ const FEATURES = [
 const PRIVACY = [
   'Your plans, routines and history are saved on your phone. Signing up with Google keeps your name and calendar on this device too.',
   'Planning works with no signal, using the places from your last connection.',
-  'Your location is sent only when Segue plans or checks the weather, and it is not stored.',
-  "Google Calendar is read in your browser. Segue's server never sees your Google sign-in.",
+  "Your location is sent only when Segue plans your day, checks the weather or names where you are. The weather and name use a spot rounded to about 1 km. Segue's server doesn't save it.",
+  "Google Calendar is read in your browser, and Segue's server never sees your Google sign-in. When you re-route, your event titles and times go to the server so it can plan around them. They aren't saved.",
 ];
 
 function Icon({ d }: { d: string }) {
@@ -390,6 +390,9 @@ export function Landing() {
               {PRIVACY.map((p) => (
                 <li key={p}>{p}</li>
               ))}
+              <li>
+                <a href="/privacy">Read the full privacy policy</a>
+              </li>
             </ul>
           </div>
         </section>
@@ -433,6 +436,7 @@ export function Landing() {
             <h2 id="ft-about">About</h2>
             <ul>
               <li><a href="#privacy">Privacy</a></li>
+              <li><a href="/privacy">Privacy policy</a></li>
               <li><a href={`mailto:${CONTACT_EMAIL}`}>Contact us</a></li>
               <li><a href={`mailto:${CONTACT_EMAIL}?subject=Segue%20feedback`}>Send feedback</a></li>
             </ul>

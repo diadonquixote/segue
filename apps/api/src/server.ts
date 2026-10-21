@@ -5,6 +5,9 @@ import { buildGeocoder, buildPlacesProvider, buildWeatherProvider } from './prov
 import { claudeUnderstand } from './understand';
 
 const config = loadConfig();
+if (process.env.NODE_ENV === 'production' && !config.corsOrigins.some((o) => o === '*' || o.startsWith('https://'))) {
+  console.warn('CORS_ORIGINS has no https origin, so browsers on your real site will be blocked. Set it to your web app URL.');
+}
 const places = buildPlacesProvider(config);
 const understand = config.smartAdd ? claudeUnderstand() : undefined;
 const server = createServer(createApp({ config, places, weather: buildWeatherProvider(), understand, geocoder: buildGeocoder(config) }));

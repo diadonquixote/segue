@@ -1,9 +1,10 @@
 /* Segue service worker: keeps the app shell available offline.
- * - App files: stale-while-revalidate (instant open, quietly updated).
+ * - Pages: network first, so a new deploy shows on the next open; the saved shell only when offline.
+ * - Other app files (hashed, so safe to reuse): stale-while-revalidate.
  * - Fonts: cache-first.
  * - API calls: always network; the app itself falls back to its on-device engine.
  */
-const VERSION = 'segue-v10';
+const VERSION = 'segue-v11';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png', '/apple-touch-icon.png', '/wordmark-light.svg'];
 
 self.addEventListener('install', (event) => {
@@ -48,15 +49,30 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigations fall back to the cached shell (single-page app).
-  const key = req.mode === 'navigate' ? '/index.html' : req;
+  // Pages (single-page app): ask the network first. An old saved page would point at script files a
+  // new deploy has already removed, which shows as a blank screen. Offline, the saved shell opens.
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put('/index.html', copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match('/index.html')),
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(key).then((hit) => {
+    caches.match(req).then((hit) => {
       const network = fetch(req)
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
-            caches.open(VERSION).then((c) => c.put(key, copy));
+            caches.open(VERSION).then((c) => c.put(req, copy));
           }
           return res;
         })

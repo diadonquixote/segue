@@ -10,11 +10,12 @@ import type { PlacesProvider, ReverseGeocoder, WeatherProvider } from '@segue/pr
 import { CurrentWeatherSchema, NearbyQuerySchema, RerouteRequestSchema, UnderstandRequestSchema, formatIssues } from '@segue/schemas';
 import { gatherCandidates } from './candidates';
 import type { Config } from './config';
-import { RateLimiter } from './rateLimit';
+import { DailyCap, RateLimiter } from './rateLimit';
 import type { Understand } from './understand';
 
 export interface AppDeps {
-  config: Pick<Config, 'corsOrigins' | 'rerouteRateLimit'> & Partial<Pick<Config, 'smartAddRateLimit'>>;
+  config: Pick<Config, 'corsOrigins' | 'rerouteRateLimit'> &
+    Partial<Pick<Config, 'smartAddRateLimit' | 'readRateLimit' | 'smartAddDailyCap' | 'clientIpHeader' | 'trustedProxyHops'>>;
   places: PlacesProvider;
   weather: WeatherProvider;
   /** Present when "Ask in your own words" is on. */
@@ -91,15 +92,38 @@ function withFavorites(candidates: Record<string, Place[]>, blocks: { id: string
   return out;
 }
 
-function clientKey(req: IncomingMessage): string {
-  const fwd = req.headers['x-forwarded-for'];
-  const first = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(',')[0]?.trim();
-  return first || req.socket.remoteAddress || 'unknown';
+/**
+ * Who is calling, for rate limits. A client can write anything into
+ * x-forwarded-for, but each proxy of ours appends the address it saw to the
+ * END, so the entry that counts is `hops` from the right, never the first.
+ * A host that sets its own client-IP header can be named instead.
+ */
+export function clientKey(req: IncomingMessage, opts: { header?: string; hops?: number } = {}): string {
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.trim();
+  if (opts.header) {
+    const named = one(req.headers[opts.header]);
+    if (named) return named;
+  }
+  const hops = Math.max(1, opts.hops ?? 1);
+  const chain = (one(req.headers['x-forwarded-for']) ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const entry = chain.length >= hops ? chain[chain.length - hops] : undefined;
+  return entry || req.socket.remoteAddress || 'unknown';
 }
 
 export function createApp(deps: AppDeps) {
   const limiter = new RateLimiter(deps.config.rerouteRateLimit, 60 * 60 * 1000);
   const understandLimiter = new RateLimiter(deps.config.smartAddRateLimit ?? 40, 60 * 60 * 1000);
+  const readLimiter = new RateLimiter(deps.config.readRateLimit ?? 300, 60 * 60 * 1000);
+  const understandCap = new DailyCap(deps.config.smartAddDailyCap ?? 300);
+  const who = (req: IncomingMessage) => clientKey(req, { header: deps.config.clientIpHeader, hops: deps.config.trustedProxyHops });
+  /** Places, weather and place names each reach a free service that bans heavy callers. */
+  const limitRead = (req: IncomingMessage) => {
+    const retryAfter = readLimiter.hit(who(req));
+    if (retryAfter) throw new HttpError(429, 'Too many requests, try again later', undefined, { 'retry-after': String(retryAfter) });
+  };
   const log = deps.log ?? ((l: string) => console.log(l));
   const allowAll = deps.config.corsOrigins.includes('*');
 
@@ -124,6 +148,7 @@ export function createApp(deps: AppDeps) {
     }
 
     if (method === 'GET' && url.pathname === '/v1/places/nearby') {
+      limitRead(req);
       const parsed = NearbyQuerySchema.safeParse(Object.fromEntries(url.searchParams));
       if (!parsed.success) throw new HttpError(400, 'Invalid query', formatIssues(parsed.error));
       const q = parsed.data;
@@ -132,6 +157,7 @@ export function createApp(deps: AppDeps) {
     }
 
     if (method === 'GET' && url.pathname === '/v1/weather/now') {
+      limitRead(req);
       const { lat, lng } = coarse(latLngQuery(url));
       try {
         // Checked against the wire schema, so the app never gets a sky it can't draw.
@@ -143,6 +169,7 @@ export function createApp(deps: AppDeps) {
     }
 
     if (method === 'GET' && url.pathname === '/v1/place-name') {
+      limitRead(req);
       const { lat, lng } = coarse(latLngQuery(url));
       if (!deps.geocoder) return { status: 200, body: { name: null } };
       try {
@@ -155,7 +182,8 @@ export function createApp(deps: AppDeps) {
     }
 
     if (method === 'GET' && url.pathname === '/v1/weather') {
-      const { lat, lng } = latLngQuery(url);
+      limitRead(req);
+      const { lat, lng } = coarse(latLngQuery(url));
       return { status: 200, body: { hours: await deps.weather.forecast({ lat, lng }) } };
     }
 
@@ -164,8 +192,10 @@ export function createApp(deps: AppDeps) {
       const parsed = UnderstandRequestSchema.safeParse(await readJson(req));
       if (!parsed.success) throw new HttpError(400, 'Invalid request', formatIssues(parsed.error));
       // Counted after validation: only requests that would reach Claude use up the allowance.
-      const retryAfter = understandLimiter.hit(clientKey(req));
+      const retryAfter = understandLimiter.hit(who(req));
       if (retryAfter) throw new HttpError(429, 'Too many requests, try again later', undefined, { 'retry-after': String(retryAfter) });
+      // The shared daily budget comes last, so a client that is already limited doesn't spend it.
+      if (!understandCap.take()) throw new HttpError(503, 'Smart add is resting for today, try again tomorrow');
       try {
         return { status: 200, body: { blocks: await deps.understand(parsed.data.text, parsed.data.localTime) } };
       } catch (e) {
@@ -175,7 +205,7 @@ export function createApp(deps: AppDeps) {
     }
 
     if (method === 'POST' && url.pathname === '/v1/reroute') {
-      const retryAfter = limiter.hit(clientKey(req));
+      const retryAfter = limiter.hit(who(req));
       if (retryAfter) throw new HttpError(429, 'Too many re-routes, try again later', undefined, { 'retry-after': String(retryAfter) });
 
       const parsed = RerouteRequestSchema.safeParse(await readJson(req));

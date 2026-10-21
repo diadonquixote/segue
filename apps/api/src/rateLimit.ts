@@ -26,3 +26,26 @@ export class RateLimiter {
     for (const [k, w] of this.windows) if (now - w.start >= this.windowMs) this.windows.delete(k);
   }
 }
+
+/** A budget shared by every client, reset each UTC day. Keeps a paid endpoint's worst day bounded. */
+export class DailyCap {
+  private day = '';
+  private used = 0;
+  constructor(
+    private readonly limit: number,
+    private readonly clock: () => number = Date.now,
+  ) {}
+
+  /** Spends one call. False once today's budget is gone; a limit of 0 means no cap. */
+  take(): boolean {
+    if (this.limit === 0) return true;
+    const today = new Date(this.clock()).toISOString().slice(0, 10);
+    if (today !== this.day) {
+      this.day = today;
+      this.used = 0;
+    }
+    if (this.used >= this.limit) return false;
+    this.used++;
+    return true;
+  }
+}
