@@ -226,6 +226,24 @@ function SignUp({ account, busy, error, onSignUp, place }: { account: Account | 
   );
 }
 
+const CONTACT_EMAIL = 'pdyntechnology@gmail.com';
+
+/** PDYN Technologies: the studio behind Segue. The tile takes the text colour, so it works on light and dark. */
+function PdynLockup() {
+  return (
+    <span className="pdyn">
+      <svg className="pdyn-mark" viewBox="0 0 100 100" width="40" height="40" aria-hidden="true">
+        <rect width="100" height="100" rx="22" fill="currentColor" />
+        <path d="M23 37 L44 63 L76 31 M52 30 H77 V55" fill="none" stroke="var(--fog)" strokeWidth="8" strokeLinecap="square" strokeLinejoin="miter" />
+      </svg>
+      <span className="pdyn-words">
+        <span className="pdyn-name">PDYN</span>
+        <span className="pdyn-sub">Technologies</span>
+      </span>
+    </span>
+  );
+}
+
 export function Landing() {
   const [account, setAccount] = useState<Account | null>(null);
   const [busy, setBusy] = useState(false);
@@ -297,7 +315,7 @@ export function Landing() {
       </header>
 
       <main>
-        <section className="lp-section lp-try" aria-labelledby="try-title">
+        <section id="try" className="lp-section lp-try" aria-labelledby="try-title">
           <div className="lp-split">
             <div>
               <p className="lp-eyebrow">Plain words in</p>
@@ -325,7 +343,7 @@ export function Landing() {
           </ol>
         </section>
 
-        <section className="lp-section lp-reasons" aria-labelledby="reasons-title">
+        <section id="reasons" className="lp-section lp-reasons" aria-labelledby="reasons-title">
           <div className="lp-split">
             <div>
               <p className="lp-eyebrow">When the day goes sideways</p>
@@ -389,16 +407,56 @@ export function Landing() {
       </main>
 
       <footer className="lp-footer">
-        <picture>
-          <source srcSet="/wordmark-light.svg" media="(prefers-color-scheme: dark)" />
-          <img src="/wordmark.svg" alt="Segue" className="lp-footer-mark" />
-        </picture>
-        <p>
-          <em>Segue</em> (n.): in music, moving from one piece into the next without a pause.
-        </p>
-        <a href="/app" onClick={openApp}>
-          Open Segue
-        </a>
+        <div className="lp-footer-top">
+          <div className="lp-footer-brand">
+            <picture>
+              <source srcSet="/wordmark-light.svg" media="(prefers-color-scheme: dark)" />
+              <img src="/wordmark.svg" alt="Segue" className="lp-footer-mark" />
+            </picture>
+            <p>
+              <em>Segue</em> (n.): in music, moving from one piece into the next without a pause. A day planner that
+              re-routes itself when life goes off-script.
+            </p>
+          </div>
+
+          <nav className="lp-footer-col" aria-labelledby="ft-explore">
+            <h2 id="ft-explore">Explore</h2>
+            <ul>
+              <li><a href="#try">Try it</a></li>
+              <li><a href="#how">How it works</a></li>
+              <li><a href="#reasons">Re-route with a reason</a></li>
+              <li><a href="#features">Features</a></li>
+            </ul>
+          </nav>
+
+          <nav className="lp-footer-col" aria-labelledby="ft-about">
+            <h2 id="ft-about">About</h2>
+            <ul>
+              <li><a href="#privacy">Privacy</a></li>
+              <li><a href={`mailto:${CONTACT_EMAIL}`}>Contact us</a></li>
+              <li><a href={`mailto:${CONTACT_EMAIL}?subject=Segue%20feedback`}>Send feedback</a></li>
+            </ul>
+          </nav>
+
+          <nav className="lp-footer-col" aria-labelledby="ft-app">
+            <h2 id="ft-app">Use Segue</h2>
+            <ul>
+              <li><a href="/app" onClick={openApp}>Open Segue</a></li>
+              <li><a href="#final-title">Add it to your home screen</a></li>
+            </ul>
+          </nav>
+        </div>
+
+        <div className="lp-footer-bottom">
+          <p className="lp-footer-copy">© {new Date().getFullYear()} Segue. All rights reserved.</p>
+          <p className="lp-footer-by">
+            <span className="visually-hidden">Built by </span>
+            <PdynLockup />
+          </p>
+          <a className="lp-footer-mail" href={`mailto:${CONTACT_EMAIL}`}>
+            {CONTACT_EMAIL}
+          </a>
+        </div>
       </footer>
     </div>
   );
