@@ -121,3 +121,7 @@ pnpm --filter @segue/engine bench   # engine speed on a busy day
 ## Status
 
 This is the Phase 1 MVP from the architecture doc, with parts of Phase 2 (offline re-route, weather, fallbacks, explanations). Google Calendar events can be brought in as fixed blocks. Next up: accounts and sync (Postgres + PostGIS), City Kits, and location and closure triggers. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## License
+
+Copyright 2026 Kristina Diane Aviles. Licensed under the [Apache License 2.0](LICENSE).
