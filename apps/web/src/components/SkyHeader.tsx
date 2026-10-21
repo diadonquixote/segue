@@ -6,7 +6,7 @@ import type { LocationStatus } from '../lib/locationStatus';
 import { skyWords, type SkyView } from '../lib/weather';
 import { Sky, sceneFor } from './Sky';
 
-export type View = 'today' | 'plan' | 'routines';
+export type View = 'today' | 'plan' | 'days' | 'routines';
 
 interface Props {
   sky: SkyView;
@@ -92,6 +92,9 @@ export function SkyHeader({ sky, now, view, onView, location, onSettings, tempUn
                 </button>
                 <button type="button" aria-current={view === 'plan' ? 'page' : undefined} onClick={() => onView('plan')}>
                   Plan
+                </button>
+                <button type="button" aria-current={view === 'days' ? 'page' : undefined} onClick={() => onView('days')}>
+                  Calendar
                 </button>
                 <button type="button" aria-current={view === 'routines' ? 'page' : undefined} onClick={() => onView('routines')}>
                   Routines

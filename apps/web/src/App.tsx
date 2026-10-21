@@ -4,6 +4,7 @@ import { AddAtSheet } from './components/AddAtSheet';
 import { BlockForm, RoutinesView } from './components/Blocks';
 import { CalendarCard } from './components/CalendarCard';
 import { CalendarPage } from './components/CalendarPage';
+import { DaysPage, WeekStrip, marksFor } from './components/DaysPage';
 import { ItemSheet } from './components/ItemSheet';
 import { GoogleButton } from './components/GoogleButton';
 import { Onboarding } from './components/Onboarding';
@@ -16,6 +17,7 @@ import { LocationBanner } from './components/LocationBanner';
 import { SkyHeader, type View } from './components/SkyHeader';
 import { Timeline } from './components/Timeline';
 import { calendarBlockId } from './lib/calendar';
+import { addDays, dayLabel, withArchived, type CalendarDays, type DayArchive } from './lib/days';
 import { clock } from './lib/format';
 import { firstName, forgetAccount, loadAccount, signUpWithGoogle, type Account } from './lib/account';
 import { GOOGLE_CLIENT_ID, calendarErrorMessage } from './lib/googleCalendar';
@@ -78,6 +80,8 @@ export function App() {
   const [placeCache, setPlaceCache] = usePersisted<PlaceCache | undefined>('placeCache', undefined, ready);
   const [favorites, setFavorites] = usePersisted<FavoritePlace[]>('favorites', [], ready);
   const [history, setHistory] = usePersisted<PlaceHistory>('placeHistory', {}, ready);
+  // Past days' plans, kept on the phone for the calendar.
+  const [archive, setArchive] = usePersisted<DayArchive>('dayArchive', {}, ready);
   const [undoStack, setUndoStack] = useState<DayState[]>([]);
   const route = useRoute();
   // Where Back on the calendar screen returns to.
@@ -122,7 +126,7 @@ export function App() {
   // Load everything from the device first, so the app opens instantly offline.
   useEffect(() => {
     void (async () => {
-      const [b, s, d, c, f, h, calendar] = await Promise.all([
+      const [b, s, d, c, f, h, calendar, calDays, arch] = await Promise.all([
         getItem<StoredBlock[]>('blocks'),
         getItem<Settings>('settings'),
         getItem<DayState>('day'),
@@ -130,6 +134,8 @@ export function App() {
         getItem<FavoritePlace[]>('favorites'),
         getItem<PlaceHistory>('placeHistory'),
         getItem<typeof cal.calendar>('calendar'),
+        getItem<CalendarDays>('calendarDays'),
+        getItem<DayArchive>('dayArchive'),
       ]);
       // People who used Segue before the setup screens existed skip them.
       setBlocks(b ?? []);
@@ -139,6 +145,9 @@ export function App() {
       setFavorites(f ?? []);
       setHistory(h ?? {});
       if (calendar) cal.setCalendar(calendar);
+      if (calDays) cal.setDays(calDays);
+      // Yesterday's plan (saved under 'day') joins the archive before the new day replaces it.
+      setArchive(d && d.date !== localDate() ? withArchived(arch ?? {}, d) : (arch ?? {}));
       setAccount((await loadAccount()) ?? null);
       setReady(true);
     })();
@@ -150,6 +159,15 @@ export function App() {
     const t = setTimeout(() => setToast(null), toast.undo ? 6000 : 3500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Every change to today's plan is kept for the calendar, so past days can be looked back on.
+  useEffect(() => {
+    if (ready && day.plan) setArchive((a) => withArchived(a, day));
+  }, [ready, day, setArchive]);
+
+  // The day open on the calendar, and the week shown on Plan.
+  const [picked, setPicked] = useState(() => localDate());
+  const [planWeek, setPlanWeek] = useState(() => localDate());
 
   // A new day starts with a clean slate.
   useEffect(() => {
@@ -392,12 +410,20 @@ export function App() {
     pendingReplan.current = true;
   }
 
+  /** Plan ahead: things added on the calendar for another day are one-offs for that day. */
+  function addForDay(date: string, added: StoredBlock[]) {
+    setBlocks((list) => [...list, ...added.map((b) => (b.date ? { ...b, date } : b))]);
+    const what = added.length === 1 ? added[0]!.title : `${added.length} things`;
+    setToast({ text: added.every((b) => b.date) ? `Added ${what} for ${dayLabel(date, { weekday: 'short', month: 'short', day: 'numeric' })}.` : `Added ${what} to your routines.` });
+  }
+
   const saveBlock = (b: StoredBlock) => {
     const isNew = !blocks.some((x) => x.id === b.id);
     setBlocks((list) => (isNew ? [...list, b] : list.map((x) => (x.id === b.id ? b : x))));
     setSheet(null);
     setToast({ text: isNew ? `Added ${b.title}.` : 'Saved. Re-route to fit the change in.' });
-    if (isNew) pendingReplan.current = true;
+    // Things for another day wait for that day; only today's additions re-plan now.
+    if (isNew && (!b.date || b.date === today)) pendingReplan.current = true;
   };
 
   const deleteBlock = (id: string) => {
@@ -480,6 +506,11 @@ export function App() {
   );
   const calendarEvents = cal.calendar.date === day.date ? cal.calendar.events : [];
   const excludedSet = new Set(day.excludedIds ?? []);
+  const marks = (k: string) => marksFor(k, { today, day, blocks, archive, events: cal.days.days, todayEvents: calendarEvents });
+  const openDay = (k: string) => {
+    setPicked(k);
+    navigate('days');
+  };
   const openItem = sheet?.kind === 'item' ? itemById(sheet.id) : undefined;
   const editing = sheet?.kind === 'block' ? (sheet.draft ?? blocks.find((b) => b.id === sheet.id)) : undefined;
 
@@ -601,6 +632,56 @@ export function App() {
               onPlan={() => void replan(null, { autoAccept: !day.plan })}
               busy={replanBusy}
               precautions={precautions}
+              week={
+                <WeekStrip
+                  anchor={planWeek}
+                  today={today}
+                  selected={today}
+                  onSelect={(k) => (k === today ? undefined : openDay(k))}
+                  marks={marks}
+                  onPrev={() => setPlanWeek((w) => addDays(w, -7))}
+                  onNext={() => setPlanWeek((w) => addDays(w, 7))}
+                  extra={
+                    <button type="button" className="text-button" onClick={() => openDay(today)}>
+                      Month
+                    </button>
+                  }
+                />
+              }
+            />
+          )}
+          {route === 'days' && (
+            <DaysPage
+              now={now}
+              today={today}
+              selected={picked}
+              onSelect={setPicked}
+              day={day}
+              blocks={blocks}
+              archive={archive}
+              events={cal.days.days}
+              todayEvents={calendarEvents}
+              connected={cal.calendar.connected}
+              syncedAt={cal.days.syncedAt}
+              loading={cal.rangeBusy}
+              error={cal.rangeError}
+              onLoad={(from, to, interactive) => void cal.loadRange(from, to, { interactive })}
+              onConnect={() => navigate('calendar')}
+              adder={
+                <QuickAdd
+                  key={picked}
+                  now={now}
+                  onAdd={(added) => addForDay(picked, added)}
+                  onMore={(draft) => setSheet({ kind: 'block', id: null, draft: draft.date ? { ...draft, date: picked } : draft })}
+                />
+              }
+              onRemoveBlock={(id) => setBlocks((list) => list.filter((b) => b.id !== id))}
+              onEditBlock={(id) => setSheet({ kind: 'block', id })}
+              onOpenToday={() => navigate('today')}
+              onPlanToday={() => {
+                navigate('plan');
+                void replan(null, { autoAccept: !day.plan });
+              }}
             />
           )}
           {route === 'calendar' && (

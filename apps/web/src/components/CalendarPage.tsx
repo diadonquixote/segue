@@ -31,10 +31,10 @@ function CalendarGlyph({ size = 40 }: { size?: number }) {
 }
 
 const PROMISES = [
-  { title: 'Reads, never writes', body: "Segue only looks at today's events. It can't create, change or delete anything in your calendar." },
+  { title: 'Reads, never writes', body: "Segue reads today's events, and the days you open on its calendar. It can't create, change or delete anything in your calendar." },
   { title: 'Plans around what makes you busy', body: 'Meetings and classes become fixed times. Events marked "free", ones you declined, cancelled ones and all-day events are left out.' },
   { title: 'Every calendar you have switched on', body: 'Work, personal and shared calendars all count. A meeting that is on two of them shows up once.' },
-  { title: 'Stays on your phone', body: "Google's sign-in happens in your browser and lasts about an hour. Segue's server never sees it." },
+  { title: 'Stays on your phone', body: "Google's sign-in happens in your browser and lasts about an hour. Segue's server never sees it. Events you've opened are kept on this phone so the calendar works offline; disconnecting removes them." },
 ];
 
 export function CalendarPage(props: Props) {

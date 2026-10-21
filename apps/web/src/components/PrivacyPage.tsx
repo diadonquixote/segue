@@ -44,9 +44,11 @@ export function PrivacyPage() {
         <section aria-labelledby="pp-device">
           <h2 id="pp-device">What stays on your device</h2>
           <p>
-            Segue keeps these in your browser&apos;s storage on this device only: your blocks and routines, today&apos;s plan, settings, saved places,
-            places you have been, places found on your last connection (so planning works offline), and, if you sign up with Google, your name, email
-            address, profile photo and today&apos;s calendar events (title, time and place).
+            Segue keeps these in your browser&apos;s storage on this device only: your blocks and routines, today&apos;s plan and the plans from past
+            days (up to about four months, for the calendar), things you planned ahead for other days, settings, saved places, places you have been,
+            places found on your last connection (so planning works offline), and, if you sign up with Google, your name, email address, profile photo
+            and the calendar events (title, time and place) for today and for the days you open on Segue&apos;s calendar, kept for up to about four
+            months so the calendar works offline. Disconnecting Google Calendar or signing out removes the saved events.
           </p>
           <p>
             Your Google access token is never saved. It lives in memory while the page is open and goes only to Google. Clearing it is one tap:
@@ -90,7 +92,8 @@ export function PrivacyPage() {
             </li>
             <li>
               <strong>See your calendar events</strong> (<code>calendar.events.readonly</code>): so today&apos;s meetings become fixed parts of your
-              plan.
+              plan, and so Segue&apos;s calendar can show your events on the days you open, next to your plans. Segue reads only the weeks or month
+              on screen.
             </li>
             <li>
               <strong>See which calendars you have switched on</strong> (<code>calendar.calendarlist.readonly</code>): so every calendar you use is
