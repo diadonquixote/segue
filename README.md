@@ -6,6 +6,13 @@ Calendars assume you stay put. When you're always moving city to city, one misse
 
 > *Segue* (n.) — in music, moving from one piece into the next without a pause.
 
+## Live site
+
+- **App:** https://segue.pdyntech.com/app
+- **Privacy:** https://segue.pdyntech.com/privacy
+
+`main` is the only branch and the one that is live. Every push to `main` redeploys the site: Vercel builds the web app and Render runs the API.
+
 ## What's in the box
 
 | Path | What it is |
@@ -86,7 +93,7 @@ The web app is static, so it goes on Vercel. The API is a long-running Node serv
 
    With `READ_RATE_LIMIT=3` set for the test you should see `200 200 200 429`. If they all return `200`, the server is keying on the wrong address: raise `TRUSTED_PROXY_HOPS` to 2, or set `CLIENT_IP_HEADER` to the header your host documents. Then set `READ_RATE_LIMIT` back to `300`.
 
-**Web on Vercel** (New Project → import the repo):
+**Web on Vercel** (New Project → import the repo; the live site deploys from `main`, so keep **Production Branch** set to `main`):
 
 1. Set **Root Directory** to `apps/web`. `apps/web/vercel.json` supplies the build output, the single-page-app rewrite and the security headers.
 2. Set `VITE_API_URL` to the API's address and `VITE_GOOGLE_CLIENT_ID` to your OAuth client ID. Both are baked in at build time, so redeploy after changing them.
