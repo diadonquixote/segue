@@ -4,16 +4,20 @@
  */
 import { useEffect, useState } from 'react';
 
-export type Route = 'today' | 'plan' | 'routines' | 'calendar';
+export type Route = 'today' | 'plan' | 'days' | 'routines' | 'calendar';
 
 const PATHS: Record<Route, string> = {
   today: '/app',
   plan: '/app/plan',
+  days: '/app/days',
   routines: '/app/routines',
   calendar: '/app/calendar',
 };
 
 export const isAppPath = (path: string) => path === '/app' || path.startsWith('/app/');
+
+/** The privacy policy page. */
+export const isPrivacyPath = (path: string) => path.replace(/\/+$/, '') === '/privacy';
 
 export function routeFor(path: string): Route {
   const clean = path.replace(/\/+$/, '') || '/';

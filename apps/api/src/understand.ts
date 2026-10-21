@@ -79,7 +79,8 @@ export function claudeUnderstand(client: Anthropic = new Anthropic()): Understan
   return async (text, localTime) => {
     const response = await client.beta.messages.parse({
       model: 'claude-opus-5-5',
-      max_tokens: 16000,
+      // Ten short blocks fit well inside this; a cap keeps one odd request from running up the bill.
+      max_tokens: 4000,
       // If a safety check declines, the API retries on another model in the same call.
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',

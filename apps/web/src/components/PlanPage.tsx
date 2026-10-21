@@ -39,6 +39,8 @@ interface Props {
   onPlan: () => void;
   busy: boolean;
   precautions: Precaution[];
+  /** the week strip: tap another day to see it on the calendar */
+  week?: ReactNode;
 }
 
 /** Before there's a plan, the grid shows the day's fixed points: calendar events and set times. */
@@ -90,6 +92,8 @@ export function PlanPage(props: Props) {
           <p className="muted">{longDate(now)}</p>
         </div>
       </header>
+
+      {props.week}
 
       <details className="panel day-settings">
         <summary>

@@ -7,12 +7,14 @@ import { REASONS } from '../lib/replan';
 import type { SkyCondition } from '../lib/weather';
 import { GoogleButton } from './GoogleButton';
 import { EXAMPLES } from './QuickAdd';
-import { Sky } from './Sky';
+import { Sky, sceneFor } from './Sky';
 import '../landing.css';
 
 const SKIES: { id: SkyCondition; label: string }[] = [
   { id: 'clear', label: 'Sunny' },
+  { id: 'partly-cloudy', label: 'Partly cloudy' },
   { id: 'cloudy', label: 'Cloudy' },
+  { id: 'fog', label: 'Fog' },
   { id: 'rain', label: 'Rain' },
   { id: 'heavy-rain', label: 'Heavy rain' },
   { id: 'storm', label: 'Storm' },
@@ -69,8 +71,8 @@ const FEATURES = [
 const PRIVACY = [
   'Your plans, routines and history are saved on your phone. Signing up with Google keeps your name and calendar on this device too.',
   'Planning works with no signal, using the places from your last connection.',
-  'Your location is sent only when Segue plans or checks the weather, and it is not stored.',
-  "Google Calendar is read in your browser. Segue's server never sees your Google sign-in.",
+  "Your location is sent only when Segue plans your day, checks the weather or names where you are. The weather and name use a spot rounded to about 1 km. Segue's server doesn't save it.",
+  "Google Calendar is read in your browser, and Segue's server never sees your Google sign-in. When you re-route, your event titles and times go to the server so it can plan around them. They aren't saved.",
 ];
 
 function Icon({ d }: { d: string }) {
@@ -88,7 +90,17 @@ function PhoneMock({ condition }: { condition: SkyCondition }) {
     <div className="lp-phone" aria-hidden="true">
       <div className={`lp-phone-sky ${condition}`}>
         <img src="/wordmark-light.svg" alt="" />
-        <span>{wet ? '26° · Rain' : condition === 'cloudy' ? '28° · Cloudy' : '31° · Clear and sunny'}</span>
+        <span>
+          {wet
+            ? '26° · Rain'
+            : condition === 'cloudy'
+              ? '28° · Cloudy'
+              : condition === 'fog'
+                ? '24° · Foggy'
+                : condition === 'partly-cloudy'
+                  ? '30° · Partly cloudy'
+                  : '31° · Clear and sunny'}
+        </span>
       </div>
       <div className="lp-phone-body">
         <div className="lp-phone-input">Add something… e.g. Gym 1h after 5pm</div>
@@ -214,6 +226,24 @@ function SignUp({ account, busy, error, onSignUp, place }: { account: Account | 
   );
 }
 
+const CONTACT_EMAIL = 'pdyntechnology@gmail.com';
+
+/** PDYN Technologies: the studio behind Segue. The tile takes the text colour, so it works on light and dark. */
+function PdynLockup() {
+  return (
+    <span className="pdyn">
+      <svg className="pdyn-mark" viewBox="0 0 100 100" width="40" height="40" aria-hidden="true">
+        <rect width="100" height="100" rx="22" fill="currentColor" />
+        <path d="M23 37 L44 63 L76 31 M52 30 H77 V55" fill="none" stroke="var(--fog)" strokeWidth="8" strokeLinecap="square" strokeLinejoin="miter" />
+      </svg>
+      <span className="pdyn-words">
+        <span className="pdyn-name">PDYN</span>
+        <span className="pdyn-sub">Technologies</span>
+      </span>
+    </span>
+  );
+}
+
 export function Landing() {
   const [account, setAccount] = useState<Account | null>(null);
   const [busy, setBusy] = useState(false);
@@ -248,7 +278,7 @@ export function Landing() {
     <div className="landing">
       <header className="lp-hero">
         {/* Always the daytime sky here, so the chips match what you see. */}
-        <Sky condition={sky} isDay />
+        <Sky scene={sceneFor({ condition: sky })} />
         <nav className="lp-nav" aria-label="Segue">
           <a href="/" className="lp-logo">
             <img src="/wordmark-light.svg" alt="Segue" />
@@ -285,7 +315,7 @@ export function Landing() {
       </header>
 
       <main>
-        <section className="lp-section lp-try" aria-labelledby="try-title">
+        <section id="try" className="lp-section lp-try" aria-labelledby="try-title">
           <div className="lp-split">
             <div>
               <p className="lp-eyebrow">Plain words in</p>
@@ -313,7 +343,7 @@ export function Landing() {
           </ol>
         </section>
 
-        <section className="lp-section lp-reasons" aria-labelledby="reasons-title">
+        <section id="reasons" className="lp-section lp-reasons" aria-labelledby="reasons-title">
           <div className="lp-split">
             <div>
               <p className="lp-eyebrow">When the day goes sideways</p>
@@ -360,6 +390,9 @@ export function Landing() {
               {PRIVACY.map((p) => (
                 <li key={p}>{p}</li>
               ))}
+              <li>
+                <a href="/privacy">Read the full privacy policy</a>
+              </li>
             </ul>
           </div>
         </section>
@@ -377,16 +410,57 @@ export function Landing() {
       </main>
 
       <footer className="lp-footer">
-        <picture>
-          <source srcSet="/wordmark-light.svg" media="(prefers-color-scheme: dark)" />
-          <img src="/wordmark.svg" alt="Segue" className="lp-footer-mark" />
-        </picture>
-        <p>
-          <em>Segue</em> (n.): in music, moving from one piece into the next without a pause.
-        </p>
-        <a href="/app" onClick={openApp}>
-          Open Segue
-        </a>
+        <div className="lp-footer-top">
+          <div className="lp-footer-brand">
+            <picture>
+              <source srcSet="/wordmark-light.svg" media="(prefers-color-scheme: dark)" />
+              <img src="/wordmark.svg" alt="Segue" className="lp-footer-mark" />
+            </picture>
+            <p>
+              <em>Segue</em> (n.): in music, moving from one piece into the next without a pause. A day planner that
+              re-routes itself when life goes off-script.
+            </p>
+          </div>
+
+          <nav className="lp-footer-col" aria-labelledby="ft-explore">
+            <h2 id="ft-explore">Explore</h2>
+            <ul>
+              <li><a href="#try">Try it</a></li>
+              <li><a href="#how">How it works</a></li>
+              <li><a href="#reasons">Re-route with a reason</a></li>
+              <li><a href="#features">Features</a></li>
+            </ul>
+          </nav>
+
+          <nav className="lp-footer-col" aria-labelledby="ft-about">
+            <h2 id="ft-about">About</h2>
+            <ul>
+              <li><a href="#privacy">Privacy</a></li>
+              <li><a href="/privacy">Privacy policy</a></li>
+              <li><a href={`mailto:${CONTACT_EMAIL}`}>Contact us</a></li>
+              <li><a href={`mailto:${CONTACT_EMAIL}?subject=Segue%20feedback`}>Send feedback</a></li>
+            </ul>
+          </nav>
+
+          <nav className="lp-footer-col" aria-labelledby="ft-app">
+            <h2 id="ft-app">Use Segue</h2>
+            <ul>
+              <li><a href="/app" onClick={openApp}>Open Segue</a></li>
+              <li><a href="#final-title">Add it to your home screen</a></li>
+            </ul>
+          </nav>
+        </div>
+
+        <div className="lp-footer-bottom">
+          <p className="lp-footer-copy">© {new Date().getFullYear()} Segue. All rights reserved.</p>
+          <p className="lp-footer-by">
+            <span className="visually-hidden">Built by </span>
+            <PdynLockup />
+          </p>
+          <a className="lp-footer-mail" href={`mailto:${CONTACT_EMAIL}`}>
+            {CONTACT_EMAIL}
+          </a>
+        </div>
       </footer>
     </div>
   );

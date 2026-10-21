@@ -84,7 +84,7 @@ describe('nudges', () => {
 
   it('flags an outdoor plan when it is actually raining', () => {
     const day = dayWith([item('run', '16:00', '16:45', { place })]);
-    const rainy = { condition: 'rain', isDay: true, known: true } as const;
+    const rainy = { condition: 'rain', isDay: true, phase: 'day', known: true } as const;
     expect(nudgesFor(day, now, { mode: 'walk', blocks: [run], sky: rainy }).some((n) => n.kind === 'rain')).toBe(true);
     expect(nudgesFor(day, now, { mode: 'walk', blocks: [run], sky: { ...rainy, preview: true } }).some((n) => n.kind === 'rain')).toBe(false);
     expect(nudgesFor(day, now, { mode: 'walk', blocks: [run], sky: { ...rainy, condition: 'clear' } }).some((n) => n.kind === 'rain')).toBe(false);

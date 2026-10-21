@@ -4,10 +4,11 @@
  */
 import { haversineMeters, type LatLng } from '@segue/engine';
 import { API_URL } from './reroute';
+import { moonState, type DayPhase, type MoonState, type SunState } from './sunTimes';
 
-/** Mirrors SkyCondition / CurrentWeather in @segue/providers (the app doesn't depend on that package). */
-export type SkyCondition = 'clear' | 'cloudy' | 'rain' | 'heavy-rain' | 'storm';
-export const SKY_CONDITIONS: readonly SkyCondition[] = ['clear', 'cloudy', 'rain', 'heavy-rain', 'storm'];
+/** Mirrors SkyCondition / CurrentWeather in @segue/providers and the wire schema in @segue/schemas (keep all three in step). */
+export type SkyCondition = 'clear' | 'partly-cloudy' | 'cloudy' | 'fog' | 'rain' | 'heavy-rain' | 'storm';
+export const SKY_CONDITIONS: readonly SkyCondition[] = ['clear', 'partly-cloudy', 'cloudy', 'fog', 'rain', 'heavy-rain', 'storm'];
 
 export interface CurrentWeather {
   condition: SkyCondition;
@@ -18,6 +19,9 @@ export interface CurrentWeather {
   gustKmh?: number;
   precipitationMm?: number;
   observedAt: string;
+  /** the place's offset from UTC in minutes, from its time zone */
+  utcOffsetMinutes?: number;
+  timezone?: string;
   upcoming?: { time: string; rainChance: number; uvIndex?: number; feelsLikeC?: number }[];
 }
 
@@ -28,15 +32,33 @@ export interface SavedSky {
   fetchedAt: string;
 }
 
-/** What the header draws. `known: false` means a plain sky with no weather claim. */
+/**
+ * What the header draws. `known: false` means a plain sky with no weather claim.
+ * The weather gives the condition and temperature; the time of day always
+ * comes from the clock and where the sky is (`sun`, `moon`, `phase`).
+ */
 export interface SkyView {
   condition: SkyCondition;
+  /** the sun is above the horizon */
   isDay: boolean;
+  phase: DayPhase;
+  sun?: SunState;
+  moon?: MoonState;
+  /** where the moon is on its path, 0 rising → 1 setting */
+  moonPath?: number;
+  /** the sky is south of the equator */
+  southern?: boolean;
+  /** the clock offset where the sky is, in minutes from UTC */
+  utcOffsetMinutes?: number;
+  /** the app is showing a stand-in place (Manila), not where the user is */
+  notYours?: boolean;
   temperatureC?: number;
   known: boolean;
   preview?: boolean;
   /** feels-like, UV, wind and the next hours, when known: what precautions are based on */
   details?: CurrentWeather;
+  /** when the weather shown was fetched, for "Updated 25 min ago" */
+  fetchedAt?: string;
 }
 
 /** Check the sky again this often while the app is open. */
@@ -44,21 +66,19 @@ export const SKY_REFRESH_MS = 20 * 60_000;
 /** Older than this, a saved sky is no longer "now". */
 export const SKY_STALE_MS = 3 * 60 * 60_000;
 /** Moving further than this asks for the sky again. */
-const SKY_MOVE_M = 3000;
+export const SKY_MOVE_M = 3000;
 
-export const SKY_COPY: Record<SkyCondition, { day: string; night: string; hint: string }> = {
-  clear: { day: 'Clear and sunny', night: 'Clear night', hint: 'Good weather for anything outdoors.' },
-  cloudy: { day: 'Cloudy', night: 'Cloudy night', hint: 'Grey but dry for now.' },
+/** `twilight` is used at dawn and dusk, when the sun is just below the horizon. */
+export const SKY_COPY: Record<SkyCondition, { day: string; night: string; twilight?: string; hint: string }> = {
+  clear: { day: 'Clear and sunny', night: 'Clear night', twilight: 'Clear sky', hint: 'Good weather for anything outdoors.' },
+  'partly-cloudy': { day: 'Partly cloudy', night: 'Partly cloudy', hint: 'Sun and cloud, dry for now.' },
+  cloudy: { day: 'Cloudy', night: 'Cloudy night', twilight: 'Cloudy', hint: 'Grey but dry for now.' },
+  fog: { day: 'Foggy', night: 'Foggy', hint: "It's hard to see far. Allow extra time on the road." },
   rain: { day: 'Rain', night: 'Rain', hint: 'Outdoor blocks may move indoors when you re-route.' },
   'heavy-rain': { day: 'Heavy rain', night: 'Heavy rain', hint: 'Allow extra travel time. Outdoor blocks may move indoors.' },
   storm: { day: 'Thunderstorm', night: 'Thunderstorm', hint: 'Stay indoors if you can. Re-route to keep the day dry.' },
 };
 
-/** Rough day/night when there's no forecast to ask. */
-export function isDaytime(now: Date): boolean {
-  const h = now.getHours();
-  return h >= 6 && h < 18;
-}
 
 export function needsRefresh(saved: SavedSky | undefined, location: LatLng, now: Date): boolean {
   if (!saved) return true;
@@ -66,29 +86,93 @@ export function needsRefresh(saved: SavedSky | undefined, location: LatLng, now:
   return haversineMeters(saved.location, location) > SKY_MOVE_M;
 }
 
-export function skyToShow(saved: SavedSky | undefined, now: Date): SkyView {
+/** Sunrise and sunset happen when the sun's centre is this far below the horizon. */
+const SUN_UP = -0.833;
+
+/**
+ * The sky to draw: the weather (if recent) under the real time of day.
+ * Freshness is always judged by the real clock (`now`); `at` is the moment
+ * the sky shows, which a preview can move.
+ */
+export function skyToShow(saved: SavedSky | undefined, now: Date, sun: SunState, at: Date = now): SkyView {
+  const time = { isDay: sun.elevation > SUN_UP, phase: sun.phase, sun, moon: moonState(at.getTime()) };
   const age = saved ? now.getTime() - Date.parse(saved.fetchedAt) : Infinity;
-  if (!saved || age >= SKY_STALE_MS) return { condition: 'clear', isDay: isDaytime(now), known: false };
-  const { condition, isDay, temperatureC } = saved.weather;
-  return { condition, isDay, temperatureC, known: true, details: saved.weather };
+  if (!saved || age >= SKY_STALE_MS) return { condition: 'clear', ...time, known: false };
+  const { condition, temperatureC } = saved.weather;
+  return { condition, temperatureC, ...time, known: true, details: saved.weather, fetchedAt: saved.fetchedAt };
 }
 
 /**
- * `?sky=storm` (and `&night=1`) shows any sky, for previews and design checks.
+ * `?sky=storm` shows any sky, for previews and design checks.
+ * `&hour=17.5` or `&time=17:30` shows it at that time on the clock where the
+ * sky is (`&night=1` is 11 PM); `&lat=&lng=` shows it somewhere else.
  * `&feels=38&uv=10&gust=60&rainAt=15` adds details, to preview precautions.
  */
-export function skyPreview(search: string, now = new Date()): Pick<SkyView, 'condition' | 'isDay' | 'details'> | null {
+export interface SkyPreview {
+  condition: SkyCondition;
+  /** show it at night: 11 PM where the sky is */
+  night?: boolean;
+  /** minutes after local midnight where the sky is, from &hour= or &time= */
+  minutes?: number;
+  /** somewhere else, from &lat=&lng= */
+  place?: LatLng;
+  details?: CurrentWeather;
+}
+
+/** "17:30" or "17.5" → minutes after midnight; undefined if it isn't a time of day. */
+export function previewMinutes(params: URLSearchParams): number | undefined {
+  const time = params.get('time');
+  if (time) {
+    const m = time.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return undefined;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    return h < 24 && min < 60 ? h * 60 + min : undefined;
+  }
+  const hour = params.get('hour');
+  if (hour === null || hour.trim() === '') return undefined;
+  const h = Number(hour);
+  return Number.isFinite(h) && h >= 0 && h < 24 ? Math.round(h * 60) : undefined;
+}
+
+/** That time of day today, on the clock of a place `offsetMin` from UTC. */
+export function previewMoment(now: Date, minutes: number, offsetMin: number): Date {
+  const local = new Date(now.getTime() + offsetMin * 60_000);
+  const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  return new Date(midnight + (minutes - offsetMin) * 60_000);
+}
+
+/**
+ * Previews fake the sky, so they only work while developing, or in a build
+ * made with VITE_ENABLE_SKY_PREVIEW=true (for design reviews). A normal
+ * production build ignores ?sky= and the rest.
+ */
+export function skyPreviewEnabled(env: { DEV?: boolean; VITE_ENABLE_SKY_PREVIEW?: string } = import.meta.env ?? {}): boolean {
+  return env.DEV === true || env.VITE_ENABLE_SKY_PREVIEW === 'true';
+}
+
+export function skyPreview(search: string, now = new Date(), enabled = skyPreviewEnabled()): SkyPreview | null {
+  if (!enabled) return null;
   const params = new URLSearchParams(search);
   const sky = params.get('sky');
   if (!sky || !SKY_CONDITIONS.includes(sky as SkyCondition)) return null;
   const condition = sky as SkyCondition;
-  const isDay = params.get('night') !== '1';
+  const night = params.get('night') === '1';
+  const isDay = !night;
+  const minutes = night ? 23 * 60 : previewMinutes(params);
+  const lat = Number(params.get('lat'));
+  const lng = Number(params.get('lng'));
+  const place =
+    params.get('lat') && params.get('lng') && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+      ? { lat, lng }
+      : undefined;
   const num = (k: string) => (params.has(k) && Number.isFinite(Number(params.get(k))) ? Number(params.get(k)) : undefined);
   const feels = num('feels');
   const uv = num('uv');
   const gust = num('gust');
   const rainAt = num('rainAt');
-  if (feels === undefined && uv === undefined && gust === undefined && rainAt === undefined) return { condition, isDay };
+  const base: SkyPreview = { condition, ...(night && { night }), ...(minutes !== undefined && { minutes }), ...(place && { place }) };
+  if (feels === undefined && uv === undefined && gust === undefined && rainAt === undefined) return base;
   const upcoming =
     rainAt === undefined
       ? undefined
@@ -98,16 +182,12 @@ export function skyPreview(search: string, now = new Date()): Pick<SkyView, 'con
           t.setHours(t.getHours() + i);
           return { time: t.toISOString(), rainChance: t.getHours() >= rainAt ? 80 : 5, uvIndex: uv };
         });
-  return {
-    condition,
-    isDay,
-    details: { condition, isDay, feelsLikeC: feels, uvIndex: uv, gustKmh: gust, observedAt: now.toISOString(), upcoming },
-  };
+  return { ...base, details: { condition, isDay, feelsLikeC: feels, uvIndex: uv, gustKmh: gust, observedAt: now.toISOString(), upcoming } };
 }
 
 export async function fetchCurrentWeather(location: LatLng, timeoutMs = 6000): Promise<CurrentWeather | null> {
   // About 1 km is plenty for weather, and the exact position stays on the phone.
-  const params = new URLSearchParams({ lat: location.lat.toFixed(2), lng: location.lng.toFixed(2) });
+  const params = weatherQuery(location);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -120,4 +200,29 @@ export async function fetchCurrentWeather(location: LatLng, timeoutMs = 6000): P
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** What a weather request carries: the position rounded to about 1 km, never the exact fix. */
+export function weatherQuery(location: LatLng): URLSearchParams {
+  return new URLSearchParams({ lat: location.lat.toFixed(2), lng: location.lng.toFixed(2) });
+}
+
+/** The weather in words for the time of day: "Clear and sunny", "Clear sky" at dusk, "Clear night". */
+export function skyWords(sky: Pick<SkyView, 'condition' | 'isDay' | 'phase'>): string {
+  const copy = SKY_COPY[sky.condition];
+  if (sky.phase === 'dawn' || sky.phase === 'dusk') return copy.twilight ?? copy.night;
+  return sky.isDay ? copy.day : copy.night;
+}
+
+/**
+ * The clock offset where the sky is, for its sunrise and local hours: the
+ * place's own time zone from the weather when known; the device's when it's
+ * the user's own location; otherwise an estimate from the longitude.
+ */
+export function skyUtcOffset(opts: { saved?: SavedSky; location: LatLng; yours: boolean; deviceOffset: number }): number {
+  const { saved, location } = opts;
+  const sameArea = saved && haversineMeters(saved.location, location) <= 50_000;
+  if (sameArea && saved.weather.utcOffsetMinutes !== undefined) return saved.weather.utcOffsetMinutes;
+  if (opts.yours) return opts.deviceOffset;
+  return Math.round(location.lng / 15) * 60;
 }

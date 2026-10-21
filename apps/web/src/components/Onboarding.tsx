@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { TravelMode } from '@segue/engine';
 import { MODE_LABEL, type Settings, type StoredBlock } from '../lib/model';
-import type { LocationStatus } from './SkyHeader';
+import { LOCATION_WHY, type LocationBannerCopy, type LocationStatus } from '../lib/locationStatus';
 import { QuickAdd } from './QuickAdd';
 
 interface Props {
@@ -11,7 +11,8 @@ interface Props {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
   location: LocationStatus;
-  onLocate: () => void;
+  /** why location is blocked or missing, when it is */
+  locationProblem: LocationBannerCopy | null;
   added: StoredBlock[];
   onAdd: (blocks: StoredBlock[]) => void;
   onRemove: (id: string) => void;
@@ -32,7 +33,7 @@ const MODE_HINT: Record<TravelMode, string> = {
 
 export function Onboarding(props: Props) {
   const [step, setStep] = useState(0);
-  const { settings, location } = props;
+  const { settings, location, locationProblem } = props;
 
   return (
     <div className="onboarding">
@@ -53,23 +54,24 @@ export function Onboarding(props: Props) {
             <li>It finds the time and the place, around what's open and the weather.</li>
             <li>When plans change, one tap re-routes the rest of your day.</li>
           </ul>
-          <div className="ob-card">
+          <div className="ob-card" aria-live="polite">
             <strong>Where are you?</strong>
-            <p className="muted small">
-              Segue uses your location to find nearby places and the weather. It isn't stored on the server.
-            </p>
-            {location.kind === 'located' ? (
-              <p className="ok-line">Got it. Using your location.</p>
-            ) : location.kind === 'denied' ? (
-              <p className="muted small">Location is blocked. You can allow it later in your browser's site settings.</p>
+            <p className="muted small">{LOCATION_WHY}</p>
+            {location.source === 'here' ? (
+              <p className="ok-line">Got it. Your sky is set to {location.label}.</p>
+            ) : location.source === 'finding' ? (
+              <p className="muted small">Finding you… Your browser may ask first.</p>
+            ) : locationProblem && locationProblem.kind !== 'asking' ? (
+              <p className="muted small">{locationProblem.text}</p>
             ) : (
-              <button type="button" className="ghost" onClick={props.onLocate} disabled={location.kind === 'locating'}>
-                {location.kind === 'locating' ? 'Finding you…' : 'Use my location'}
-              </button>
+              <p className="muted small">
+                {location.label}
+                {location.note && ` · ${location.note}`}
+              </p>
             )}
           </div>
           <button type="button" className="primary wide" onClick={() => setStep(1)}>
-            {location.kind === 'located' ? 'Next' : 'Next, without location for now'}
+            {location.source === 'here' ? 'Next' : 'Next, without location for now'}
           </button>
         </section>
       )}

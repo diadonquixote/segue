@@ -48,9 +48,11 @@ export interface Settings {
   tempUnit?: 'C' | 'F';
   /** "leave now", rain and running-over reminders */
   reminders?: boolean;
+  /** @deprecated read once to seed the saved fix ('fix' in the store); not written any more */
   lastLocation?: LatLng;
+  /** @deprecated no longer used */
   lastLocationLabel?: string;
-  /** ISO time of the last real position fix */
+  /** @deprecated ISO time of the last real position fix; see `lastLocation` */
   lastLocatedAt?: string;
 }
 

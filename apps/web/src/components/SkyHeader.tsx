@@ -1,16 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, type CSSProperties } from 'react';
 import { longDate } from '../lib/format';
-import { SKY_LOOK } from '../lib/skyRenderer';
-import { SKY_COPY, type SkyView } from '../lib/weather';
-import { Sky } from './Sky';
+import { CHIP_ALPHA, headerScrim } from '../lib/pageTheme';
+import { toneAt } from '../lib/skyRenderer';
+import type { LocationStatus } from '../lib/locationStatus';
+import { skyWords, type SkyView } from '../lib/weather';
+import { Sky, sceneFor } from './Sky';
 
-export type View = 'today' | 'plan' | 'routines';
-
-export type LocationStatus =
-  | { kind: 'located'; at?: string }
-  | { kind: 'default' }
-  | { kind: 'denied' }
-  | { kind: 'locating' };
+export type View = 'today' | 'plan' | 'days' | 'routines';
 
 interface Props {
   sky: SkyView;
@@ -18,7 +14,6 @@ interface Props {
   view: View;
   onView: (v: View) => void;
   location: LocationStatus;
-  onLocate: () => void;
   onSettings: () => void;
   tempUnit: 'C' | 'F';
   /** first-run setup hides the tabs */
@@ -48,22 +43,39 @@ function GearIcon() {
   );
 }
 
+/** What a screen reader hears for the pin. */
+const pinLabel = (l: LocationStatus) =>
+  l.source === 'finding' ? 'Finding your location' : `Sky for ${l.label}${l.note ? `. ${l.note}` : ''}`;
+
 const temp = (c: number, unit: 'C' | 'F') => `${Math.round(unit === 'F' ? (c * 9) / 5 + 32 : c)}°`;
 
-export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettings, tempUnit, showNav = true }: Props) {
-  const copy = SKY_COPY[sky.condition];
-  const top = SKY_LOOK[sky.condition][sky.isDay ? 'day' : 'night'].sky[0];
+export function SkyHeader({ sky, now, view, onView, location, onSettings, tempUnit, showNav = true }: Props) {
+  // A new scene object only when something the renderer draws has changed.
+  const scene = useMemo(
+    () => sceneFor(sky),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sky.condition, sky.sun?.elevation, sky.sun?.morning, sky.sun?.progress, sky.moon?.cycle, sky.moonPath, sky.southern],
+  );
+  const tone = toneAt(scene.condition, scene.elevation, scene.morning);
+  const top = tone.sky[0];
+  // As dark behind the text as this sky needs for AA, and no darker.
+  const contrastVars = { '--scrim': String(headerScrim(tone)), '--chip': String(CHIP_ALPHA) } as CSSProperties;
 
-  // Tint the phone's status bar to match the sky.
+  // Back to the neutral default from index.html when the header goes away.
+  // (Declared first, so it reads the neutral colour before the sky's is set.)
+  useEffect(() => {
+    const metas = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')];
+    const neutral = metas.map((m) => m.getAttribute('content'));
+    return () => metas.forEach((m, i) => m.setAttribute('content', neutral[i] ?? ''));
+  }, []);
+  // Tint the phone's status bar to match the sky and time of day.
   useEffect(() => {
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', top));
   }, [top]);
 
-  const where = location.kind === 'located' ? 'Your location' : location.kind === 'locating' ? 'Finding you…' : 'Use my location';
-
   return (
-    <header className="sky-band">
-      <Sky condition={sky.condition} isDay={sky.isDay} />
+    <header className="sky-band" style={contrastVars}>
+      <Sky scene={scene} />
       <div className="sky-content">
         <div className="top">
           <div className="brand">
@@ -80,6 +92,9 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
                 </button>
                 <button type="button" aria-current={view === 'plan' ? 'page' : undefined} onClick={() => onView('plan')}>
                   Plan
+                </button>
+                <button type="button" aria-current={view === 'days' ? 'page' : undefined} onClick={() => onView('days')}>
+                  Calendar
                 </button>
                 <button type="button" aria-current={view === 'routines' ? 'page' : undefined} onClick={() => onView('routines')}>
                   Routines
@@ -98,7 +113,7 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
               <>
                 {sky.temperatureC !== undefined && <span className="temp">{temp(sky.temperatureC, tempUnit)}</span>}
                 <span className="condition">
-                  {sky.isDay ? copy.day : copy.night}
+                  {skyWords(sky)}
                   {sky.details?.feelsLikeC !== undefined &&
                     (sky.temperatureC === undefined || Math.abs(sky.details.feelsLikeC - sky.temperatureC) >= 2) && (
                       <span className="feels"> · feels {temp(sky.details.feelsLikeC, tempUnit)}</span>
@@ -110,17 +125,12 @@ export function SkyHeader({ sky, now, view, onView, location, onLocate, onSettin
               <span className="condition">No weather right now</span>
             )}
           </span>
-          <button
-            type="button"
-            className={`where-button${location.kind === 'located' ? ' on' : ''}`}
-            onClick={onLocate}
-            disabled={location.kind === 'locating'}
-            aria-label={location.kind === 'located' ? 'Update your location' : undefined}
-            title={location.kind === 'denied' ? "Location is blocked. Allow it in your browser's site settings." : undefined}
-          >
+          {/* Where the sky is. A status, not a control: Segue finds the location on its own. */}
+          <p className={`where-button${location.source === 'here' ? ' on' : ' stand-in'}`} role="status" aria-label={pinLabel(location)}>
             <PinIcon />
-            {where}
-          </button>
+            <span className="where-name">{location.label}</span>
+            {location.note && <span className="where-note">{location.note}</span>}
+          </p>
         </div>
       </div>
     </header>

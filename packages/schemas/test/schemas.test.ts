@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { BlockSchema, ContextSchema, NearbyQuerySchema, RerouteRequestSchema, formatIssues } from '../src';
+import {
+  BlockSchema,
+  ContextSchema,
+  CurrentWeatherSchema,
+  NearbyQuerySchema,
+  RerouteRequestSchema,
+  SKY_CONDITION_VALUES,
+  SkyConditionSchema,
+  formatIssues,
+} from '../src';
 
 const block = { id: 'b1', title: 'Deep work', minMinutes: 60, maxMinutes: 120, priority: 'must', category: 'cafe', requirements: ['wifi'] };
 const ctx = {
@@ -34,5 +43,21 @@ describe('schemas', () => {
   it('coerces nearby query strings and applies defaults', () => {
     const q = NearbyQuerySchema.parse({ lat: '14.6', lng: '121', category: 'gym' });
     expect(q).toEqual({ lat: 14.6, lng: 121, category: 'gym', radius: 1500, limit: 20 });
+  });
+});
+
+describe('current weather', () => {
+  it('accepts every sky, including partly cloudy and fog', () => {
+    for (const condition of SKY_CONDITION_VALUES) {
+      expect(CurrentWeatherSchema.safeParse({ condition, isDay: true, observedAt: '2026-10-20T04:00:00Z' }).success).toBe(true);
+    }
+    expect(SkyConditionSchema.safeParse('haze').success).toBe(false);
+  });
+
+  it('rejects impossible readings', () => {
+    expect(CurrentWeatherSchema.safeParse({ condition: 'fog', isDay: true, observedAt: 'soon' }).success).toBe(false);
+    expect(
+      CurrentWeatherSchema.safeParse({ condition: 'rain', isDay: false, observedAt: '2026-10-20T04:00:00Z', upcoming: [{ time: '2026-10-20T05:00:00Z', rainChance: 140 }] }).success,
+    ).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import { AddAtSheet } from './components/AddAtSheet';
 import { BlockForm, RoutinesView } from './components/Blocks';
 import { CalendarCard } from './components/CalendarCard';
 import { CalendarPage } from './components/CalendarPage';
+import { DaysPage, WeekStrip, marksFor } from './components/DaysPage';
 import { ItemSheet } from './components/ItemSheet';
 import { GoogleButton } from './components/GoogleButton';
 import { Onboarding } from './components/Onboarding';
@@ -12,14 +13,18 @@ import { PrecautionsCard } from './components/Precautions';
 import { QuickAdd } from './components/QuickAdd';
 import { ReplanSheet } from './components/ReplanSheet';
 import { SettingsSheet } from './components/SettingsSheet';
-import { SkyHeader, type LocationStatus, type View } from './components/SkyHeader';
+import { LocationBanner } from './components/LocationBanner';
+import { SkyHeader, type View } from './components/SkyHeader';
 import { Timeline } from './components/Timeline';
 import { calendarBlockId } from './lib/calendar';
+import { addDays, dayLabel, withArchived, type CalendarDays, type DayArchive } from './lib/days';
 import { clock } from './lib/format';
 import { firstName, forgetAccount, loadAccount, signUpWithGoogle, type Account } from './lib/account';
 import { GOOGLE_CLIENT_ID, calendarErrorMessage } from './lib/googleCalendar';
-import { useNow, usePersisted } from './lib/hooks';
-import { currentLocation, locate, locationPermission } from './lib/location';
+import { useNow, usePersisted, useSystemDark } from './lib/hooks';
+import { areaForZone, currentLocation, deviceZone, sourceLocation } from './lib/location';
+import { locationBanner, locationStatus } from './lib/locationStatus';
+import { useWhereabouts } from './lib/useWhereabouts';
 import {
   affinityFrom,
   emptyDay,
@@ -35,7 +40,9 @@ import {
   type StoredBlock,
 } from './lib/model';
 import { activeNudges, nudgesFor, type Nudge } from './lib/nudges';
+import { applyPageTheme, pageTheme } from './lib/pageTheme';
 import { precautionsFor } from './lib/precautions';
+import { toneAt } from './lib/skyRenderer';
 import { BUSY_BLOCK_ID, adjustFor, type ReplanReason } from './lib/replan';
 import { rerouteDay, type RerouteOutcome } from './lib/reroute';
 import { navigate, useRoute } from './lib/router';
@@ -43,6 +50,7 @@ import { DEFAULT_LOCATION, DEFAULT_SETTINGS, SEED_BLOCKS } from './lib/seed';
 import { clearAll, getItem } from './lib/store';
 import { useCalendar } from './lib/useCalendar';
 import { askNotificationPermission, useReminders } from './lib/useReminders';
+import { usePlaceName } from './lib/placeName';
 import { useSky } from './lib/useSky';
 
 /** The API takes at most this many blocks per re-route (packages/schemas). */
@@ -72,6 +80,8 @@ export function App() {
   const [placeCache, setPlaceCache] = usePersisted<PlaceCache | undefined>('placeCache', undefined, ready);
   const [favorites, setFavorites] = usePersisted<FavoritePlace[]>('favorites', [], ready);
   const [history, setHistory] = usePersisted<PlaceHistory>('placeHistory', {}, ready);
+  // Past days' plans, kept on the phone for the calendar.
+  const [archive, setArchive] = usePersisted<DayArchive>('dayArchive', {}, ready);
   const [undoStack, setUndoStack] = useState<DayState[]>([]);
   const route = useRoute();
   // Where Back on the calendar screen returns to.
@@ -81,8 +91,6 @@ export function App() {
   }, [route]);
   const [sheet, setSheet] = useState<SheetState>(null);
   const [toast, setToast] = useState<Toast | null>(null);
-  const [locating, setLocating] = useState(false);
-  const [locationDenied, setLocationDenied] = useState(false);
   const [replanBusy, setReplanBusy] = useState(false);
   const [replanError, setReplanError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<RerouteOutcome | null>(null);
@@ -95,12 +103,30 @@ export function App() {
   const today = localDate(now);
   const notify = useCallback((text: string) => setToast({ text }), []);
   const cal = useCalendar(ready, notify);
-  const sky = useSky(settings.lastLocation ?? DEFAULT_LOCATION, now);
+  // Segue finds and follows the location on its own. A real fix (now or saved) is the user's own;
+  // otherwise the time zone's main city stands in, and the pin says so. The user never picks the sky.
+  const where = useWhereabouts(ready, { location: settings.lastLocation, at: settings.lastLocatedAt });
+  const yours = where.source.kind === 'here' || where.source.kind === 'last';
+  // Until the first position arrives, no weather at all: never a stand-in's sky shown as the user's.
+  const skyLocation = where.waiting ? undefined : sourceLocation(where.source);
+  const sky = useSky(skyLocation, now, { yours, deviceClock: true });
+  const placeName = usePlaceName(yours ? skyLocation : undefined);
+  const systemDark = useSystemDark();
+
+  // The page takes on the sky: dark under a night sky, warm at golden hour.
+  // An unknown sky leaves the CSS defaults (and prefers-color-scheme) alone.
+  const theme = useMemo(() => {
+    if (!sky.known) return null;
+    const tone = toneAt(sky.condition, sky.sun?.elevation ?? (sky.isDay ? 45 : -30), sky.sun?.morning ?? false);
+    return pageTheme(tone, sky.phase, systemDark);
+  }, [sky.known, sky.condition, sky.sun?.elevation, sky.sun?.morning, sky.isDay, sky.phase, systemDark]);
+  useEffect(() => applyPageTheme(theme), [theme]);
+  useEffect(() => () => applyPageTheme(null), []);
 
   // Load everything from the device first, so the app opens instantly offline.
   useEffect(() => {
     void (async () => {
-      const [b, s, d, c, f, h, calendar] = await Promise.all([
+      const [b, s, d, c, f, h, calendar, calDays, arch] = await Promise.all([
         getItem<StoredBlock[]>('blocks'),
         getItem<Settings>('settings'),
         getItem<DayState>('day'),
@@ -108,6 +134,8 @@ export function App() {
         getItem<FavoritePlace[]>('favorites'),
         getItem<PlaceHistory>('placeHistory'),
         getItem<typeof cal.calendar>('calendar'),
+        getItem<CalendarDays>('calendarDays'),
+        getItem<DayArchive>('dayArchive'),
       ]);
       // People who used Segue before the setup screens existed skip them.
       setBlocks(b ?? []);
@@ -117,12 +145,11 @@ export function App() {
       setFavorites(f ?? []);
       setHistory(h ?? {});
       if (calendar) cal.setCalendar(calendar);
+      if (calDays) cal.setDays(calDays);
+      // Yesterday's plan (saved under 'day') joins the archive before the new day replaces it.
+      setArchive(d && d.date !== localDate() ? withArchived(arch ?? {}, d) : (arch ?? {}));
       setAccount((await loadAccount()) ?? null);
       setReady(true);
-      // Already allowed: quietly refresh where we are, so the sky is local. Never prompts.
-      const permission = await locationPermission();
-      if (permission === 'granted') void locateNow({ quiet: true });
-      if (permission === 'denied') setLocationDenied(true);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -132,6 +159,15 @@ export function App() {
     const t = setTimeout(() => setToast(null), toast.undo ? 6000 : 3500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Every change to today's plan is kept for the calendar, so past days can be looked back on.
+  useEffect(() => {
+    if (ready && day.plan) setArchive((a) => withArchived(a, day));
+  }, [ready, day, setArchive]);
+
+  // The day open on the calendar, and the week shown on Plan.
+  const [picked, setPicked] = useState(() => localDate());
+  const [planWeek, setPlanWeek] = useState(() => localDate());
 
   // A new day starts with a clean slate.
   useEffect(() => {
@@ -156,23 +192,6 @@ export function App() {
     setDay(prev);
     setUndoStack(rest);
     setToast({ text: 'Undone.' });
-  }
-
-  async function locateNow({ quiet = false } = {}) {
-    setLocating(true);
-    const found = await locate();
-    setLocating(false);
-    if (found.ok) {
-      const at = new Date().toISOString();
-      setLocationDenied(false);
-      setSettings((s) => ({ ...s, lastLocation: found.location, lastLocationLabel: `near you at ${clock(at)}`, lastLocatedAt: at }));
-      if (!quiet) setToast({ text: 'Using your location.' });
-    } else if (found.reason === 'denied') {
-      setLocationDenied(true);
-      if (!quiet) setToast({ text: "Location is blocked. Allow it in your browser's site settings." });
-    } else if (!quiet) {
-      setToast({ text: "Couldn't find you. Try again in a moment." });
-    }
   }
 
   function applyPlan(o: RerouteOutcome, plan: Plan, pendingBusy?: StoredBlock) {
@@ -216,10 +235,9 @@ export function App() {
         }
         const adj = adjustFor(why, start, settings.energy, endOfDay);
         const located = await currentLocation(8000, adj.refreshLocation);
-        const location = located ?? settings.lastLocation ?? DEFAULT_LOCATION;
-        if (located) {
-          setSettings((s) => ({ ...s, lastLocation: located, lastLocationLabel: `near you at ${clock(start.toISOString())}`, lastLocatedAt: start.toISOString() }));
-        }
+        if (located) where.remember(located);
+        const area = areaForZone(deviceZone());
+        const location = located ?? where.fix?.location ?? area?.location ?? DEFAULT_LOCATION;
         const excluded = new Set(day.excludedIds ?? []);
         const planned = blocks.filter((b) => plannedToday(b, localDate(start)) && b.id !== BUSY_BLOCK_ID && !excluded.has(b.id));
         const room = MAX_BLOCKS - planned.length - adj.extraBlocks.length;
@@ -241,7 +259,9 @@ export function App() {
             weather: adj.weather,
           },
         });
-        if (!located && !settings.lastLocation) o.warnings.unshift("No location yet, so this plans from Metro Manila. Tap Use my location for nearby places.");
+        if (!located && !where.fix) {
+          o.warnings.unshift(`No location yet, so this plans around ${area?.name ?? 'Metro Manila'}. Allow location in your browser for places near you.`);
+        }
         o.warnings.push(...fromCalendar.warnings);
         if (o.placeCache) setPlaceCache(o.placeCache);
         const busy = adj.extraBlocks.find((b) => b.id === BUSY_BLOCK_ID);
@@ -269,7 +289,7 @@ export function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [blocks, day, placeCache, settings, favorites, history, cal.calendar],
+    [blocks, day, placeCache, settings, favorites, history, cal.calendar, where.fix, where.remember],
   );
 
   // First open of the day: plan it straight away.
@@ -390,12 +410,20 @@ export function App() {
     pendingReplan.current = true;
   }
 
+  /** Plan ahead: things added on the calendar for another day are one-offs for that day. */
+  function addForDay(date: string, added: StoredBlock[]) {
+    setBlocks((list) => [...list, ...added.map((b) => (b.date ? { ...b, date } : b))]);
+    const what = added.length === 1 ? added[0]!.title : `${added.length} things`;
+    setToast({ text: added.every((b) => b.date) ? `Added ${what} for ${dayLabel(date, { weekday: 'short', month: 'short', day: 'numeric' })}.` : `Added ${what} to your routines.` });
+  }
+
   const saveBlock = (b: StoredBlock) => {
     const isNew = !blocks.some((x) => x.id === b.id);
     setBlocks((list) => (isNew ? [...list, b] : list.map((x) => (x.id === b.id ? b : x))));
     setSheet(null);
     setToast({ text: isNew ? `Added ${b.title}.` : 'Saved. Re-route to fit the change in.' });
-    if (isNew) pendingReplan.current = true;
+    // Things for another day wait for that day; only today's additions re-plan now.
+    if (isNew && (!b.date || b.date === today)) pendingReplan.current = true;
   };
 
   const deleteBlock = (id: string) => {
@@ -454,13 +482,16 @@ export function App() {
 
   if (!ready) return <div className="boot" aria-busy="true" />;
 
-  const locationStatus: LocationStatus = locating
-    ? { kind: 'locating' }
-    : locationDenied
-      ? { kind: 'denied' }
-      : settings.lastLocationLabel
-        ? { kind: 'located', at: settings.lastLocatedAt }
-        : { kind: 'default' };
+  const status = locationStatus({
+    source: where.source,
+    permission: where.permission,
+    asking: where.asking,
+    waiting: where.waiting,
+    name: placeName,
+    weatherAt: sky.fetchedAt,
+    now,
+  });
+  const banner = locationBanner(where);
 
   const calendarCard = (
     <CalendarCard
@@ -475,6 +506,11 @@ export function App() {
   );
   const calendarEvents = cal.calendar.date === day.date ? cal.calendar.events : [];
   const excludedSet = new Set(day.excludedIds ?? []);
+  const marks = (k: string) => marksFor(k, { today, day, blocks, archive, events: cal.days.days, todayEvents: calendarEvents });
+  const openDay = (k: string) => {
+    setPicked(k);
+    navigate('days');
+  };
   const openItem = sheet?.kind === 'item' ? itemById(sheet.id) : undefined;
   const editing = sheet?.kind === 'block' ? (sheet.draft ?? blocks.find((b) => b.id === sheet.id)) : undefined;
 
@@ -484,8 +520,7 @@ export function App() {
       now={now}
       view={route === 'calendar' ? lastRoute.current : route}
       onView={(r) => navigate(r)}
-      location={locationStatus}
-      onLocate={() => void locateNow()}
+      location={status}
       onSettings={() => setSheet({ kind: 'settings' })}
       tempUnit={settings.tempUnit ?? 'C'}
       showNav={!!settings.onboarded}
@@ -502,8 +537,8 @@ export function App() {
             name={firstName(account) || undefined}
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
-            location={locationStatus}
-            onLocate={() => void locateNow()}
+            location={status}
+            locationProblem={banner}
             added={blocks.filter((b) => b.date === today)}
             onAdd={(added) => addBlocks(added, { plan: false })}
             onRemove={(id) => setBlocks((list) => list.filter((b) => b.id !== id))}
@@ -529,6 +564,7 @@ export function App() {
     <>
       {header}
       <div className="app">
+        <LocationBanner banner={banner} />
         <main>
           {route === 'today' && (
             <Timeline
@@ -596,6 +632,56 @@ export function App() {
               onPlan={() => void replan(null, { autoAccept: !day.plan })}
               busy={replanBusy}
               precautions={precautions}
+              week={
+                <WeekStrip
+                  anchor={planWeek}
+                  today={today}
+                  selected={today}
+                  onSelect={(k) => (k === today ? undefined : openDay(k))}
+                  marks={marks}
+                  onPrev={() => setPlanWeek((w) => addDays(w, -7))}
+                  onNext={() => setPlanWeek((w) => addDays(w, 7))}
+                  extra={
+                    <button type="button" className="text-button" onClick={() => openDay(today)}>
+                      Month
+                    </button>
+                  }
+                />
+              }
+            />
+          )}
+          {route === 'days' && (
+            <DaysPage
+              now={now}
+              today={today}
+              selected={picked}
+              onSelect={setPicked}
+              day={day}
+              blocks={blocks}
+              archive={archive}
+              events={cal.days.days}
+              todayEvents={calendarEvents}
+              connected={cal.calendar.connected}
+              syncedAt={cal.days.syncedAt}
+              loading={cal.rangeBusy}
+              error={cal.rangeError}
+              onLoad={(from, to, interactive) => void cal.loadRange(from, to, { interactive })}
+              onConnect={() => navigate('calendar')}
+              adder={
+                <QuickAdd
+                  key={picked}
+                  now={now}
+                  onAdd={(added) => addForDay(picked, added)}
+                  onMore={(draft) => setSheet({ kind: 'block', id: null, draft: draft.date ? { ...draft, date: picked } : draft })}
+                />
+              }
+              onRemoveBlock={(id) => setBlocks((list) => list.filter((b) => b.id !== id))}
+              onEditBlock={(id) => setSheet({ kind: 'block', id })}
+              onOpenToday={() => navigate('today')}
+              onPlanToday={() => {
+                navigate('plan');
+                void replan(null, { autoAccept: !day.plan });
+              }}
             />
           )}
           {route === 'calendar' && (
@@ -698,8 +784,9 @@ export function App() {
           <SettingsSheet
             settings={settings}
             onChange={(patch) => setSettings((s) => ({ ...s, ...patch }))}
-            location={locationStatus}
-            onLocate={() => void locateNow()}
+            location={status}
+            locationUnsupported={where.permission === 'unsupported'}
+            locatedAt={where.fix?.at}
             favorites={favorites}
             onRemoveFavorite={(id) => setFavorites((list) => list.filter((f) => f.id !== id))}
             onToggleReminders={(on) => void toggleReminders(on)}

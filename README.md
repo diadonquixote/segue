@@ -12,7 +12,7 @@ Calendars assume you stay put. When you're always moving city to city, one misse
 | --- | --- |
 | `packages/engine` | The re-routing engine. Pure TypeScript, no I/O, so it runs on the server **and** offline on the phone. Greedy insertion + local search, opening hours, travel time, rain, energy, fallbacks, explanations, and plan diffs. |
 | `packages/schemas` | Zod schemas for every request and record. |
-| `packages/providers` | Places (OpenStreetMap, Google Places, mock), weather (Open-Meteo), and the Places Gateway cost controls: geohash cache, fallback chain, daily budget. |
+| `packages/providers` | Places (OpenStreetMap, Google Places, mock), weather (Open-Meteo with a MET Norway fallback and a server-side cache), and the Places Gateway cost controls: geohash cache, fallback chain, daily budget. |
 | `apps/api` | HTTP API (`POST /v1/reroute`, `POST /v1/understand`, `GET /v1/places/nearby`, `GET /v1/weather`, `GET /v1/weather/now`, `GET /health`). Zero-framework Node server with validation, CORS and rate limits. |
 | `apps/web` | Installable PWA (React + Vite). First-run setup, plain-words adding, a day timeline with swipe gestures, one-tap re-route with reasons, nudges and reminders, My spots, Google Calendar, an animated weather sky, undo, and offline re-route on the device. |
 | `docs/ARCHITECTURE.md` | How it fits together, and the roadmap. |
@@ -69,6 +69,29 @@ Segue only reads today's timed events, and never changes your calendar. Sign-in 
 ```bash
 ANTHROPIC_API_KEY=... pnpm dev:api     # SMART_ADD=off turns it off again
 ```
+
+## Deploying
+
+The web app is static, so it goes on Vercel. The API is a long-running Node server that keeps its rate limits and places cache in memory, so it goes on a normal Node host (Render, see `render.yaml`), not on serverless functions.
+
+**API on Render** (Blueprint: New → Blueprint → pick this repo):
+
+1. Set `CORS_ORIGINS` to the web app's address (for example `https://segue.example.com`). Set `ANTHROPIC_API_KEY` only after setting a monthly spend limit in the Anthropic Console; leave it empty to keep smart add off.
+2. Open `https://<your-service>.onrender.com/health`. It should answer `{"ok":true,...}`.
+3. **Check the rate limit sees real visitors.** Make several requests that each send a different made-up first address, and confirm they still share one allowance:
+
+   ```bash
+   for i in 1 2 3 4; do curl -s -o /dev/null -w "%{http_code} " -H "x-forwarded-for: 9.9.9.$i" "https://<your-service>.onrender.com/v1/weather/now?lat=14.6&lng=121"; done
+   ```
+
+   With `READ_RATE_LIMIT=3` set for the test you should see `200 200 200 429`. If they all return `200`, the server is keying on the wrong address: raise `TRUSTED_PROXY_HOPS` to 2, or set `CLIENT_IP_HEADER` to the header your host documents. Then set `READ_RATE_LIMIT` back to `300`.
+
+**Web on Vercel** (New Project → import the repo):
+
+1. Set **Root Directory** to `apps/web`. `apps/web/vercel.json` supplies the build output, the single-page-app rewrite and the security headers.
+2. Set `VITE_API_URL` to the API's address and `VITE_GOOGLE_CLIENT_ID` to your OAuth client ID. Both are baked in at build time, so redeploy after changing them.
+3. Add the production domain to **Authorized JavaScript origins** on your Google OAuth client, and to **Authorized domains** under Branding. Preview URLs change on every deploy, so test Google sign-in on the real domain.
+4. In `apps/web/vercel.json`, change the `connect-src` entry `https://*.onrender.com` to your API's exact address.
 
 ## Scripts
 

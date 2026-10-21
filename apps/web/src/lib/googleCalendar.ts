@@ -168,7 +168,15 @@ async function calendarIds(token: GoogleToken): Promise<string[]> {
 /** Today's busy events from every calendar that's switched on. */
 export async function fetchTodayEvents(token: GoogleToken, day: Date): Promise<CalendarEvent[]> {
   const { start, end } = dayBounds(day);
-  const params = new URLSearchParams({ timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime', maxResults: '100' });
+  return fetchEvents(token, start, end);
+}
+
+/**
+ * Busy events between two ISO times, from every calendar that's switched on.
+ * Used for today and for the days you open on the calendar.
+ */
+export async function fetchEvents(token: GoogleToken, start: string, end: string): Promise<CalendarEvent[]> {
+  const params = new URLSearchParams({ timeMin: start, timeMax: end, singleEvents: 'true', orderBy: 'startTime', maxResults: '250' });
   const ids = await calendarIds(token);
   const lists = await Promise.all(
     ids.map((id) =>

@@ -9,6 +9,7 @@ const ICONS: Record<PrecautionKind, string> = {
   storm: 'M7 15h10a4 4 0 0 0 .5-8 5.5 5.5 0 0 0-10.6 1.5A3.3 3.3 0 0 0 7 15zM12 13l-2 4h3l-2 4',
   wind: 'M3 8h11a3 3 0 1 0-3-3M3 12h16a3 3 0 1 1-3 3M3 16h8',
   cold: 'M12 2v20M4.5 6.5l15 11M19.5 6.5l-15 11',
+  fog: 'M4 8h16M2 12h20M4 16h16M7 20h10',
 };
 
 export function PrecautionIcon({ kind, size = 22 }: { kind: PrecautionKind; size?: number }) {

@@ -2,13 +2,18 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MockPlacesProvider, type WeatherProvider } from '@segue/providers';
-import { createApp } from '../src/app';
+import { clientKey, createApp } from '../src/app';
+import { DailyCap } from '../src/rateLimit';
 import { tidyBlocks } from '../src/understand';
+
+/** Every position the fake providers were asked about. */
+const asked: { lat: number; lng: number }[] = [];
 
 const weather: WeatherProvider = {
   name: 'fake',
   forecast: async () => [{ time: '2026-10-19T06:00:00Z', precipitationProbability: 10 }],
-  current: async ({ lat }) => {
+  current: async ({ lat, lng }) => {
+    asked.push({ lat, lng });
     if (lat > 80) throw new Error('upstream down');
     return { condition: 'storm', isDay: true, temperatureC: 25, observedAt: '2026-10-19T06:00:00Z' };
   },
@@ -37,6 +42,13 @@ beforeAll(async () => {
       config: { corsOrigins: ['http://localhost:5173'], rerouteRateLimit: 5 },
       places: new MockPlacesProvider(),
       weather,
+      geocoder: {
+        name: 'fake',
+        placeName: async ({ lat, lng }) => {
+          asked.push({ lat, lng });
+          return lat > 80 ? null : 'Poblacion, Makati';
+        },
+      },
       log: () => {},
     }),
   );
@@ -123,10 +135,26 @@ describe('API', () => {
     expect((await fetch(`${base}/nope`)).status).toBe(404);
   });
 
+  it('names the area for the location pin', async () => {
+    expect(await (await fetch(`${base}/v1/place-name?lat=14.56&lng=121.03`)).json()).toEqual({ name: 'Poblacion, Makati' });
+    expect(await (await fetch(`${base}/v1/place-name?lat=85&lng=121`)).json()).toEqual({ name: null });
+    expect((await fetch(`${base}/v1/place-name?lng=121`)).status).toBe(400);
+  });
+
   it('returns the current sky', async () => {
     const res = await fetch(`${base}/v1/weather/now?lat=14.6&lng=121`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ now: { condition: 'storm', isDay: true, temperatureC: 25, observedAt: '2026-10-19T06:00:00Z' } });
+  });
+
+  it('rounds the position to about 1 km before asking for the sky or a place name', async () => {
+    asked.length = 0;
+    await fetch(`${base}/v1/weather/now?lat=14.554712&lng=121.024438`);
+    await fetch(`${base}/v1/place-name?lat=14.554712&lng=121.024438`);
+    expect(asked).toEqual([
+      { lat: 14.55, lng: 121.02 },
+      { lat: 14.55, lng: 121.02 },
+    ]);
   });
 
   it('says plainly when the current sky is unavailable', async () => {
@@ -215,5 +243,94 @@ describe('tidyBlocks', () => {
     ]);
     expect(b).toMatchObject({ minutes: 720, requirements: ['wifi'], fixedStart: null, fixedEnd: null, place: null, earliest: null });
     expect(b!.title).toHaveLength(80);
+  });
+});
+
+describe('clientKey', () => {
+  const req = (headers: Record<string, string>, remote = '203.0.113.7') => ({ headers, socket: { remoteAddress: remote } }) as never;
+
+  it('ignores addresses a client wrote at the front of x-forwarded-for', () => {
+    expect(clientKey(req({ 'x-forwarded-for': '6.6.6.6, 198.51.100.4' }))).toBe('198.51.100.4');
+  });
+
+  it('counts back one more address for each trusted proxy', () => {
+    expect(clientKey(req({ 'x-forwarded-for': '6.6.6.6, 198.51.100.4, 10.1.1.1' }), { hops: 2 })).toBe('198.51.100.4');
+  });
+
+  it('uses the connection address when no proxy added one', () => {
+    expect(clientKey(req({}))).toBe('203.0.113.7');
+    expect(clientKey(req({ 'x-forwarded-for': '198.51.100.4' }), { hops: 2 })).toBe('203.0.113.7');
+  });
+
+  it('prefers a client-IP header the host sets, when one is named', () => {
+    expect(clientKey(req({ 'x-real-ip': '198.51.100.9', 'x-forwarded-for': '6.6.6.6' }), { header: 'x-real-ip' })).toBe('198.51.100.9');
+    expect(clientKey(req({ 'x-forwarded-for': '198.51.100.4' }), { header: 'x-real-ip' })).toBe('198.51.100.4');
+  });
+});
+
+describe('DailyCap', () => {
+  it('stops after the daily budget and starts fresh the next UTC day', () => {
+    let now = Date.UTC(2026, 9, 22, 10);
+    const cap = new DailyCap(2, () => now);
+    expect([cap.take(), cap.take(), cap.take()]).toEqual([true, true, false]);
+    now += 24 * 60 * 60 * 1000;
+    expect(cap.take()).toBe(true);
+  });
+
+  it('is off at 0', () => {
+    const cap = new DailyCap(0);
+    expect(Array.from({ length: 1000 }, () => cap.take()).every(Boolean)).toBe(true);
+  });
+});
+
+describe('API protections', () => {
+  let guarded: Server;
+  let guardedBase = '';
+  let claudeCalls = 0;
+
+  beforeAll(async () => {
+    guarded = createServer(
+      createApp({
+        config: { corsOrigins: [], rerouteRateLimit: 5, readRateLimit: 3, smartAddRateLimit: 100, smartAddDailyCap: 2 },
+        places: new MockPlacesProvider(),
+        weather,
+        understand: async () => {
+          claudeCalls++;
+          return [];
+        },
+        log: () => {},
+      }),
+    );
+    await new Promise<void>((r) => guarded.listen(0, r));
+    guardedBase = `http://127.0.0.1:${(guarded.address() as AddressInfo).port}`;
+  });
+  afterAll(() => new Promise<void>((r) => guarded.close(() => r())));
+
+  it('limits places and weather reads per client, and a made-up address does not help', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      // The caller invents a new front address each time; the one our proxy added is the same.
+      const res = await fetch(`${guardedBase}/v1/weather/now?lat=14.6&lng=121`, { headers: { 'x-forwarded-for': `1.1.1.${i}, 198.51.100.4` } });
+      statuses.push(res.status);
+      await res.arrayBuffer();
+    }
+    expect(statuses).toEqual([200, 200, 200, 429]);
+    const other = await fetch(`${guardedBase}/v1/place-name?lat=14.6&lng=121`, { headers: { 'x-forwarded-for': '198.51.100.5' } });
+    expect(other.status).toBe(200);
+  });
+
+  it('stops calling Claude once the shared daily budget is spent, whoever asks', async () => {
+    const ask = (ip: string) =>
+      fetch(`${guardedBase}/v1/understand`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+        body: JSON.stringify({ text: 'gym after 5', localTime: 'Monday 09:00' }),
+      });
+    expect((await ask('203.0.113.1')).status).toBe(200);
+    expect((await ask('203.0.113.2')).status).toBe(200);
+    const res = await ask('203.0.113.3');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: expect.stringMatching(/resting for today/) });
+    expect(claudeCalls).toBe(2);
   });
 });

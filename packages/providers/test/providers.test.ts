@@ -9,14 +9,26 @@ import {
   MockPlacesProvider,
   OpenMeteoProvider,
   skyFromWmo,
+  withOffset,
+  shortPlaceName,
+  NominatimGeocoder,
+  CachedGeocoder,
   OsmPlacesProvider,
   buildOverpassQuery,
   geohash,
   parseGoogleHours,
   parseOsmOpeningHours,
   parseOverpass,
+  CachedWeatherProvider,
+  FallbackWeatherProvider,
+  MetNoProvider,
+  ProviderError,
+  apparentTemperatureC,
+  skyFromMetSymbol,
+  type CurrentWeather,
   type FetchFn,
   type PlacesProvider,
+  type WeatherProvider,
 } from '../src';
 
 const MANILA = { lat: 14.5995, lng: 120.9842 };
@@ -205,8 +217,10 @@ describe('Open-Meteo', () => {
   it('reads current conditions into one of the five skies', async () => {
     const w = new OpenMeteoProvider(
       jsonFetch({
-        current: { time: '2026-10-19T11:00', weather_code: 63, precipitation: 1.2, temperature_2m: 26.4, apparent_temperature: 30.1, is_day: 0, uv_index: 0, wind_gusts_10m: 41 },
-        hourly: { time: ['2026-10-19T11:00', '2026-10-19T12:00'], precipitation_probability: [80, null], uv_index: [0, 0.4], apparent_temperature: [30.1, 29.8] },
+        current: { time: '2026-10-19T19:00', weather_code: 63, precipitation: 1.2, temperature_2m: 26.4, apparent_temperature: 30.1, is_day: 0, uv_index: 0, wind_gusts_10m: 41 },
+        hourly: { time: ['2026-10-19T19:00', '2026-10-19T20:00'], precipitation_probability: [80, null], uv_index: [0, 0.4], apparent_temperature: [30.1, 29.8] },
+        utc_offset_seconds: 28800,
+        timezone: 'Asia/Manila',
       }),
     );
     expect(await w.current(MANILA)).toEqual({
@@ -217,12 +231,16 @@ describe('Open-Meteo', () => {
       uvIndex: 0,
       gustKmh: 41,
       precipitationMm: 1.2,
-      observedAt: '2026-10-19T11:00:00Z',
+      observedAt: '2026-10-19T19:00:00+08:00',
+      utcOffsetMinutes: 480,
+      timezone: 'Asia/Manila',
       upcoming: [
-        { time: '2026-10-19T11:00:00Z', rainChance: 80, uvIndex: 0, feelsLikeC: 30.1 },
-        { time: '2026-10-19T12:00:00Z', rainChance: 0, uvIndex: 0.4, feelsLikeC: 29.8 },
+        { time: '2026-10-19T19:00:00+08:00', rainChance: 80, uvIndex: 0, feelsLikeC: 30.1 },
+        { time: '2026-10-19T20:00:00+08:00', rainChance: 0, uvIndex: 0.4, feelsLikeC: 29.8 },
       ],
     });
+    // the same moment as the UTC clock reads it
+    expect(Date.parse('2026-10-19T19:00:00+08:00')).toBe(Date.parse('2026-10-19T11:00:00Z'));
   });
 
   it('rejects a response without a weather code', async () => {
@@ -234,9 +252,11 @@ describe('Open-Meteo', () => {
 describe('skyFromWmo', () => {
   it.each([
     [0, 0, 'clear'],
-    [2, 0, 'clear'],
+    [1, 0, 'clear'],
+    [2, 0, 'partly-cloudy'],
     [3, 0, 'cloudy'],
-    [45, 0, 'cloudy'],
+    [45, 0, 'fog'],
+    [48, 0, 'fog'],
     [73, 0, 'cloudy'],
     [51, 0.2, 'rain'],
     [61, 1, 'rain'],
@@ -248,5 +268,217 @@ describe('skyFromWmo', () => {
     [99, 12, 'storm'],
   ] as const)('code %i with %f mm is %s', (code, mm, sky) => {
     expect(skyFromWmo(code, mm)).toBe(sky);
+  });
+});
+
+describe('local times', () => {
+  it('writes local clock times with their offset', () => {
+    expect(withOffset('2026-10-20T06:00', 28800)).toBe('2026-10-20T06:00:00+08:00');
+    expect(withOffset('2026-10-20T06:00', -18000)).toBe('2026-10-20T06:00:00-05:00');
+    expect(withOffset('2026-10-20T06:00', 19800)).toBe('2026-10-20T06:00:00+05:30');
+  });
+});
+
+describe('place names', () => {
+  it('keeps them short: neighbourhood and city, or the best single name', () => {
+    expect(shortPlaceName({ suburb: 'Poblacion', city: 'Makati' })).toBe('Poblacion, Makati');
+    expect(shortPlaceName({ quarter: 'Bel-Air', city: 'City of Makati' })).toBe('Bel-Air, Makati');
+    expect(shortPlaceName({ city: 'Quezon City' })).toBe('Quezon');
+    expect(shortPlaceName({ town: 'Tagaytay', county: 'Cavite' })).toBe('Tagaytay');
+    expect(shortPlaceName({ state: 'Batangas' })).toBe('Batangas');
+    expect(shortPlaceName({ suburb: 'A very long neighbourhood name indeed', city: 'Somewhere' })).toBe('Somewhere');
+    expect(shortPlaceName(undefined)).toBeNull();
+  });
+
+  it('asks Nominatim politely and caches by area', async () => {
+    const seen: { url: string; ua: string | null }[] = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      seen.push({ url, ua: new Headers(init?.headers).get('user-agent') });
+      return new Response(JSON.stringify({ address: { suburb: 'Poblacion', city: 'Makati' } }));
+    };
+    const geo = new CachedGeocoder(new NominatimGeocoder(fetchFn, 'Segue test', 'https://nominatim.test/reverse', 0));
+    expect(await geo.placeName({ lat: 14.5647, lng: 121.0293 })).toBe('Poblacion, Makati');
+    expect(await geo.placeName({ lat: 14.5649, lng: 121.0295 })).toBe('Poblacion, Makati'); // same cell
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toContain('zoom=14');
+    expect(seen[0]!.ua).toBe('Segue test');
+  });
+
+  it('spaces requests at least a second apart', async () => {
+    const waits: number[] = [];
+    const fetchFn: FetchFn = async () => new Response(JSON.stringify({ address: { city: 'Manila' } }));
+    const geo = new NominatimGeocoder(fetchFn, 'ua', 'https://nominatim.test/reverse', 1100, async (ms) => {
+      waits.push(ms);
+    });
+    await geo.placeName({ lat: 14.6, lng: 121 });
+    await geo.placeName({ lat: 10.3, lng: 123.9 });
+    expect(waits.length).toBe(1);
+    expect(waits[0]).toBeGreaterThan(1000);
+  });
+});
+
+const metEntry = (time: string, symbol: string, chance = 20) => ({
+  time,
+  data: {
+    instant: { details: { air_temperature: 31, relative_humidity: 70, wind_speed: 2, wind_speed_of_gust: 8, ultraviolet_index_clear_sky: 9 } },
+    next_1_hours: { summary: { symbol_code: symbol }, details: { precipitation_amount: 0, probability_of_precipitation: chance } },
+  },
+});
+
+describe('MET Norway', () => {
+  it('says who is asking and cuts coordinates to 4 decimals', async () => {
+    let seen: { url: string; ua: string | null } | undefined;
+    const w = new MetNoProvider(async (url, init) => {
+      seen = { url, ua: new Headers(init?.headers).get('user-agent') };
+      return new Response(JSON.stringify({ properties: { timeseries: [metEntry('2026-10-22T07:00:00Z', 'clearsky_day')] } }));
+    }, 'Segue test (me@example.com)');
+    await w.current({ lat: 14.554712, lng: 121.024438 });
+    expect(seen?.ua).toBe('Segue test (me@example.com)');
+    expect(seen?.url).toContain('lat=14.5547&lon=121.0244');
+  });
+
+  it('reads current conditions with a feels-like and the next hours', async () => {
+    const w = new MetNoProvider(
+      jsonFetch({ properties: { timeseries: [metEntry('2026-10-22T07:00:00Z', 'lightrainshowers_day', 60), metEntry('2026-10-22T08:00:00Z', 'cloudy', 10)] } }),
+    );
+    const now = await w.current(MANILA);
+    expect(now).toMatchObject({ condition: 'rain', isDay: true, temperatureC: 31, uvIndex: 9, gustKmh: 29, precipitationMm: 0, observedAt: '2026-10-22T07:00:00Z' });
+    expect(now.feelsLikeC).toBeCloseTo(35.9, 0);
+    expect(now.utcOffsetMinutes).toBeUndefined();
+    expect(now.upcoming).toHaveLength(2);
+    expect(now.upcoming?.[0]).toMatchObject({ time: '2026-10-22T07:00:00Z', rainChance: 60 });
+  });
+
+  it('turns hourly entries into weather hours, guessing a chance only when none is given', async () => {
+    const noChance = {
+      time: '2026-10-22T08:00:00Z',
+      data: { instant: { details: { air_temperature: 28 } }, next_1_hours: { summary: { symbol_code: 'rain' }, details: { precipitation_amount: 1.5 } } },
+    };
+    const noHourAfter = { time: '2026-10-22T09:00:00Z', data: { instant: { details: { air_temperature: 27 } } } };
+    const w = new MetNoProvider(jsonFetch({ properties: { timeseries: [metEntry('2026-10-22T07:00:00Z', 'fair', 5), noChance, noHourAfter] } }));
+    expect(await w.forecast(MANILA)).toEqual([
+      { time: '2026-10-22T07:00:00Z', precipitationProbability: 5, temperatureC: 31 },
+      { time: '2026-10-22T08:00:00Z', precipitationProbability: 100, temperatureC: 28 },
+    ]);
+  });
+
+  it('maps MET symbols to the skies', () => {
+    const cases: [string, string, boolean][] = [
+      ['clearsky_day', 'clear', true],
+      ['fair_night', 'clear', false],
+      ['partlycloudy_day', 'partly-cloudy', true],
+      ['cloudy', 'cloudy', true],
+      ['fog', 'fog', true],
+      ['lightrain', 'rain', true],
+      ['rainshowers_night', 'rain', false],
+      ['sleet', 'rain', true],
+      ['heavyrain', 'heavy-rain', true],
+      ['heavyrainshowers_day', 'heavy-rain', true],
+      ['rainandthunder', 'storm', true],
+      ['lightssleetshowersandthunder_day', 'storm', true],
+      ['snow', 'cloudy', true],
+      ['', 'cloudy', true],
+    ];
+    for (const [symbol, condition, isDay] of cases) expect(skyFromMetSymbol(symbol)).toEqual({ condition, isDay });
+  });
+
+  it('computes a feels-like from temperature, humidity and wind', () => {
+    expect(apparentTemperatureC(31, 70, 2)).toBeCloseTo(35.9, 0);
+    expect(apparentTemperatureC(31, 70, 2)).toBeGreaterThan(apparentTemperatureC(31, 70, 8));
+  });
+
+  it('fails clearly on an error status or an empty answer', async () => {
+    await expect(new MetNoProvider(jsonFetch({}, 429)).current(MANILA)).rejects.toThrow(/429/);
+    await expect(new MetNoProvider(jsonFetch({ properties: { timeseries: [] } })).forecast(MANILA)).rejects.toThrow(/missing/);
+  });
+});
+
+const sky: CurrentWeather = { condition: 'clear', isDay: true, observedAt: '2026-10-22T07:00:00Z' };
+
+class FakeWeather implements WeatherProvider {
+  calls = 0;
+  constructor(
+    readonly name: string,
+    private readonly behave: () => Promise<CurrentWeather>,
+  ) {}
+  async forecast() {
+    return [];
+  }
+  async current() {
+    this.calls++;
+    return this.behave();
+  }
+}
+
+describe('weather fallback', () => {
+  it('uses the backup when the main source refuses, and leaves the main one alone for a while', async () => {
+    let now = 0;
+    const main = new FakeWeather('open-meteo', async () => {
+      throw new ProviderError('open-meteo', 'current returned 429', 429);
+    });
+    const backup = new FakeWeather('met.no', async () => sky);
+    const failures: string[] = [];
+    const w = new FallbackWeatherProvider(main, backup, 60_000, () => now, (e) => failures.push(e.message));
+    expect(w.name).toBe('open-meteo→met.no');
+    expect(await w.current(MANILA)).toEqual(sky);
+    expect(await w.current(MANILA)).toEqual(sky);
+    expect(main.calls).toBe(1);
+    expect(backup.calls).toBe(2);
+    expect(failures).toEqual(['[open-meteo] current returned 429']);
+    now = 61_000;
+    await w.current(MANILA);
+    expect(main.calls).toBe(2);
+  });
+
+  it('reports the backup failing too', async () => {
+    const down = (name: string) =>
+      new FakeWeather(name, async () => {
+        throw new ProviderError(name, 'down');
+      });
+    await expect(new FallbackWeatherProvider(down('a'), down('b')).current(MANILA)).rejects.toThrow(/\[b\]/);
+  });
+});
+
+describe('weather cache', () => {
+  it('shares one answer per area and asks again once it is old', async () => {
+    let now = 0;
+    let n = 0;
+    const inner = new FakeWeather('x', async () => ({ ...sky, temperatureC: ++n }));
+    const w = new CachedWeatherProvider(inner, { currentTtlMs: 1000, clock: () => now });
+    const first = await w.current(MANILA);
+    expect(await w.current({ lat: 14.5996, lng: 120.9843 })).toBe(first);
+    expect(inner.calls).toBe(1);
+    await w.current({ lat: 10.3, lng: 123.9 }); // Cebu: another area
+    expect(inner.calls).toBe(2);
+    now = 1500;
+    expect((await w.current(MANILA)).temperatureC).toBe(3);
+    expect(w.hits).toBe(1);
+  });
+
+  it('asks once when several people ask at the same moment', async () => {
+    const inner = new FakeWeather('x', async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return sky;
+    });
+    const w = new CachedWeatherProvider(inner);
+    await Promise.all([w.current(MANILA), w.current(MANILA), w.current(MANILA)]);
+    expect(inner.calls).toBe(1);
+  });
+
+  it('serves an older answer while the source is down, and gives up once it is too old', async () => {
+    let now = 0;
+    let down = false;
+    const inner = new FakeWeather('x', async () => {
+      if (down) throw new Error('429');
+      return sky;
+    });
+    const w = new CachedWeatherProvider(inner, { currentTtlMs: 1000, currentStaleMs: 10_000, clock: () => now });
+    await w.current(MANILA);
+    down = true;
+    now = 5000;
+    expect(await w.current(MANILA)).toEqual(sky);
+    expect(w.stale).toBe(1);
+    now = 11_000;
+    await expect(w.current(MANILA)).rejects.toThrow('429');
   });
 });
